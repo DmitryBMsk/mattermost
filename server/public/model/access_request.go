@@ -76,3 +76,20 @@ type QueryExpressionParams struct {
 	After      string `json:"after"`
 	ChannelId  string `json:"channelId,omitempty"`
 }
+
+type EvaluateExpressionRequest struct {
+	Expression string   `json:"expression"`
+	UserIDs    []string `json:"user_ids"`
+	Action     string   `json:"action,omitempty"`
+}
+
+type EvaluateExpressionResult struct {
+	UserID   string `json:"user_id"`
+	Decision bool   `json:"decision"`
+	Error    string `json:"error,omitempty"`
+}
+
+type EvaluateExpressionResponse struct {
+	Results          []EvaluateExpressionResult `json:"results,omitempty"`
+	ExpressionErrors []CELExpressionError       `json:"expression_errors,omitempty"`
+}

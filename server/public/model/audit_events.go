@@ -12,6 +12,7 @@ const (
 	AuditEventUnassignAccessPolicy      = "unassignAccessPolicy"      // remove access control policy from channels
 	AuditEventUpdateActiveStatus        = "updateActiveStatus"        // update active/inactive status of access control policy
 	AuditEventSetActiveStatus           = "setActiveStatus"           // set active/inactive status of multiple access control policies
+	AuditEventEvaluateExpression        = "evaluateExpression"        // evaluate CEL expression against users via PDP
 )
 
 // Audit & Certificates
