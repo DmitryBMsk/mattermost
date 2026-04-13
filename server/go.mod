@@ -252,9 +252,5 @@ exclude (
 	github.com/willf/bitset v1.2.0
 )
 
-// Prevent from being upgraded because this library has a minimum requirement
-// of Go 1.24.
-replace github.com/ledongthuc/pdf => github.com/ledongthuc/pdf v0.0.0-20240201131950-da5b75280b06
-
 // See MM-66167 for more details.
 replace github.com/vmihailenco/msgpack/v5 => github.com/mattermost/msgpack/v5 v5.0.0-20260120151306-2f9c67d7e57f
