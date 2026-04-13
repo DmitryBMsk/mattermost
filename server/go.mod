@@ -33,7 +33,7 @@ require (
 	github.com/hashicorp/memberlist v0.5.3
 	github.com/icrowley/fake v0.0.0-20240710202011-f797eb4a99c0
 	github.com/isacikgoz/prompt v0.1.0
-	github.com/jaytaylor/html2text v0.0.0-20230321000545-74c2419ad056
+	github.com/jaytaylor/html2text v0.0.0-20260303211410-1a4bdc82ecec
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/klauspost/compress v1.18.0
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
@@ -115,6 +115,8 @@ require (
 	github.com/bodgit/plumbing v1.3.0 // indirect
 	github.com/bodgit/sevenzip v1.6.1 // indirect
 	github.com/bodgit/windows v1.0.1 // indirect
+	github.com/clipperhouse/displaywidth v0.10.0 // indirect
+	github.com/clipperhouse/uax29/v2 v2.6.0 // indirect
 	github.com/corpix/uarand v0.2.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
@@ -162,7 +164,7 @@ require (
 	github.com/mattermost/xml-roundtrip-validator v0.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/mattn/go-runewidth v0.0.16 // indirect
+	github.com/mattn/go-runewidth v0.0.19 // indirect
 	github.com/mattn/go-sqlite3 v2.0.3+incompatible // indirect
 	github.com/miekg/dns v1.1.66 // indirect
 	github.com/mikelolasagasti/xz v1.0.1 // indirect
@@ -176,7 +178,10 @@ require (
 	github.com/ncruces/go-strftime v0.1.9 // indirect
 	github.com/nwaples/rardecode/v2 v2.2.1 // indirect
 	github.com/oklog/run v1.1.0 // indirect
-	github.com/olekukonko/tablewriter v0.0.5 // indirect
+	github.com/olekukonko/cat v0.0.0-20250911104152-50322a0618f6 // indirect
+	github.com/olekukonko/errors v1.2.0 // indirect
+	github.com/olekukonko/ll v0.1.6 // indirect
+	github.com/olekukonko/tablewriter v1.1.4 // indirect
 	github.com/otiai10/gosseract/v2 v2.4.1 // indirect
 	github.com/pborman/uuid v1.2.1 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
@@ -190,7 +195,6 @@ require (
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	github.com/richardlehane/mscfb v1.0.6 // indirect
 	github.com/richardlehane/msoleps v1.0.5 // indirect
-	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rs/xid v1.6.0 // indirect
 	github.com/russellhaering/goxmldsig v1.5.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
@@ -251,11 +255,6 @@ exclude (
 // Prevent from being upgraded because this library has a minimum requirement
 // of Go 1.24.
 replace github.com/ledongthuc/pdf => github.com/ledongthuc/pdf v0.0.0-20240201131950-da5b75280b06
-
-// Also prevent tablewriter from being upgraded because the downstream dependency
-// jaytaylor/html2text does not have a go.mod file which makes it bump to the latest
-// version always. Tablewriter has made breaking changes to its latest release.
-replace github.com/olekukonko/tablewriter => github.com/olekukonko/tablewriter v0.0.5
 
 // See MM-66167 for more details.
 replace github.com/vmihailenco/msgpack/v5 => github.com/mattermost/msgpack/v5 v5.0.0-20260120151306-2f9c67d7e57f
