@@ -136,10 +136,17 @@ const ThreadSummaryPanel: React.FC = () => {
                                     ) : (
                                         <ChevronRightIcon size={16}/>
                                     )}
-                                    <FormattedMessage
-                                        id={detailsExpanded ? 'thread_summary.less_detail' : 'thread_summary.more_detail'}
-                                        defaultMessage={detailsExpanded ? 'Less detail' : 'More detail'}
-                                    />
+                                    {detailsExpanded ? (
+                                        <FormattedMessage
+                                            id='thread_summary.less_detail'
+                                            defaultMessage='Less detail'
+                                        />
+                                    ) : (
+                                        <FormattedMessage
+                                            id='thread_summary.more_detail'
+                                            defaultMessage='More detail'
+                                        />
+                                    )}
                                 </div>
 
                                 {detailsExpanded && (
