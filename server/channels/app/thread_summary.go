@@ -97,7 +97,14 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 		ChannelID:        channel.Id,
 	}
 
-	llmResponse, llmErr := a.ch.agentsBridge.ServiceCompletion(userID, "", req)
+	// Get the first available agent to use for completion
+	agents, agentsErr := a.ch.agentsBridge.GetAgents(userID, userID)
+	if agentsErr != nil || len(agents) == 0 {
+		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.no_agents", nil, "no AI agents available", http.StatusServiceUnavailable)
+	}
+	agentID := agents[0].ID
+
+	llmResponse, llmErr := a.ch.agentsBridge.AgentCompletion(userID, agentID, req)
 	if llmErr != nil {
 		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.llm_error", nil, llmErr.Error(), http.StatusInternalServerError)
 	}
