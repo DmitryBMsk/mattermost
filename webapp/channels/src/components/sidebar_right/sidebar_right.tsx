@@ -18,6 +18,7 @@ import ResizableRhs from 'components/resizable_sidebar/resizable_rhs';
 import RhsCard from 'components/rhs_card';
 import RhsThread from 'components/rhs_thread';
 import Search from 'components/search/index';
+import ThreadSummaryPanel from 'components/thread_summary_panel';
 
 import RhsPlugin from 'plugins/rhs_plugin';
 import a11yController from 'utils/a11y_controller_instance';
@@ -44,6 +45,7 @@ export type Props = {
     isChannelMembers: boolean;
     isPluginView: boolean;
     isPostEditHistory: boolean;
+    isThreadSummary: boolean;
     previousRhsState: RhsState;
     rhsChannel?: Channel;
     selectedPostId: string;
@@ -274,6 +276,7 @@ export default class SidebarRight extends React.PureComponent<Props, State> {
             isChannelMembers,
             isExpanded,
             isPostEditHistory,
+            isThreadSummary,
         } = this.props;
 
         if (!isOpen) {
@@ -285,7 +288,13 @@ export default class SidebarRight extends React.PureComponent<Props, State> {
         let currentChannelNeeded;
         let content = null;
 
-        if (postRightVisible) {
+        if (isThreadSummary) {
+            content = (
+                <div className='post-right__container'>
+                    <ThreadSummaryPanel/>
+                </div>
+            );
+        } else if (postRightVisible) {
             selectedChannelNeeded = true;
             content = (
                 <div className='post-right__container'>
@@ -318,7 +327,7 @@ export default class SidebarRight extends React.PureComponent<Props, State> {
 
         const channelDisplayName = rhsChannel ? rhsChannel.display_name : '';
 
-        const isSidebarRightExpanded = (postRightVisible || postCardVisible || isPluginView || searchVisible || isPostEditHistory) && isExpanded;
+        const isSidebarRightExpanded = (postRightVisible || postCardVisible || isPluginView || searchVisible || isPostEditHistory || isThreadSummary) && isExpanded;
         const containerClassName = classNames('sidebar--right', 'move--left is-open', {
             'sidebar--right--expanded expanded': isSidebarRightExpanded,
         });
