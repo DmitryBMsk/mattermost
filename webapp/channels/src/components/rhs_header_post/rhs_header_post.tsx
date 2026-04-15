@@ -4,6 +4,7 @@
 import React from 'react';
 import {FormattedMessage, injectIntl, type WrappedComponentProps} from 'react-intl';
 
+import {AiSummarizeIcon} from '@mattermost/compass-icons/components';
 import type {Channel} from '@mattermost/types/channels';
 import type {Team} from '@mattermost/types/teams';
 
@@ -38,9 +39,14 @@ type Props = WrappedComponentProps & {
     toggleRhsExpanded: (e: React.MouseEvent) => void;
     setThreadFollow: (userId: string, teamId: string, threadId: string, newState: boolean) => void;
     focusPost: (postId: string, returnTo: string, currentUserId: string, option?: {skipRedirectReplyPermalink: boolean}) => Promise<void>;
+    showThreadSummary: (postId: string) => void;
 };
 
 class RhsHeaderPost extends React.PureComponent<Props> {
+    handleSummarizeThread = () => {
+        this.props.showThreadSummary(this.props.rootPostId);
+    };
+
     handleBack = (e: React.MouseEvent) => {
         e.preventDefault();
 
@@ -209,6 +215,23 @@ class RhsHeaderPost extends React.PureComponent<Props> {
                             onClick={this.handleFollowChange}
                         />
                     ) : null}
+                    <WithTooltip
+                        title={
+                            <FormattedMessage
+                                id='rhs_header.summarize_thread'
+                                defaultMessage='Summarize Thread'
+                            />
+                        }
+                    >
+                        <button
+                            type='button'
+                            className='sidebar--right__expand btn btn-icon btn-sm'
+                            aria-label={formatMessage({id: 'rhs_header.summarize_thread.icon', defaultMessage: 'Summarize Thread'})}
+                            onClick={this.handleSummarizeThread}
+                        >
+                            <AiSummarizeIcon size={18}/>
+                        </button>
+                    </WithTooltip>
                     <PopoutButton onClick={this.popout}/>
                     <WithTooltip
                         title={rhsHeaderTooltipContent}

@@ -17,6 +17,7 @@ import {
     toggleRhsExpanded,
     goBack,
 } from 'actions/views/rhs';
+import {showThreadSummary} from 'actions/views/thread_summary';
 import {getIsRhsExpanded} from 'selectors/rhs';
 import {getIsMobileView} from 'selectors/views/browser';
 
@@ -72,6 +73,7 @@ const actions = {
     setThreadFollow,
     goBack,
     focusPost,
+    showThreadSummary,
 };
 
 export default connect(makeMapStateToProps, actions)(RhsHeaderPost);
