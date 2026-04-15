@@ -1,12 +1,22 @@
-# Thread Summarization Implementation Plan
+# Thread Summarization Implementation Plan (v2 — post code-review)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add AI-powered thread summarization to Mattermost — users click "Summarize Thread" on a post and see a structured summary in the RHS panel.
 
-**Architecture:** New Go API endpoint (`POST /api/v4/posts/{post_id}/summary`) fetches thread posts, sends to LLM via existing AI Bridge, returns structured JSON. Frontend adds new RHS panel state `THREAD_SUMMARY` with a dedicated `ThreadSummaryPanel` component, triggered from DotMenu and thread header.
+**Architecture:** New Go API endpoint (`POST /api/v4/posts/{post_id}/summary`) fetches thread posts, sends to LLM via existing AI Bridge using `BridgeCompletionRequest` (same pattern as `summarization.go`), returns structured JSON. Frontend adds new RHS panel state `THREAD_SUMMARY` with a dedicated `ThreadSummaryPanel` component. RHS routing updated so `THREAD_SUMMARY` state takes priority over the `postRightVisible` thread panel.
 
-**Tech Stack:** Go (server API), React/TypeScript/Redux (frontend), Mattermost AI Bridge (LLM integration)
+**Tech Stack:** Go (server API), React/TypeScript/Redux (frontend), Mattermost AI Bridge (`BridgeCompletionRequest`)
+
+**Review fixes applied:**
+1. AI Bridge uses `BridgeCompletionRequest` struct (not raw string)
+2. RHS state: `THREAD_SUMMARY` excluded from `postRightVisible` check in `sidebar_right/index.ts`
+3. Back navigation: `showThreadSummary` pushes current RHS state to `previousRhsStates`
+4. Authorization: handler uses `GetPostIfAuthorized` instead of `GetSinglePost`
+5. Automated tests added for backend, reducers, actions, and components
+6. DotMenu uses `threadReplyCount` prop (not `post.reply_count`)
+7. Import uses `types/store` (not `mattermost-redux/types/actions`)
+8. Post references use embedded post IDs in prompt, not ambiguous indices
 
 ---
 
@@ -16,7 +26,7 @@
 | File | Responsibility |
 |------|---------------|
 | `server/channels/api4/thread_summary.go` | HTTP handler + route registration |
-| `server/channels/app/thread_summary.go` | Business logic: fetch thread, format, call LLM, parse response |
+| `server/channels/app/thread_summary.go` | Business logic: fetch thread, build BridgeCompletionRequest, call LLM, parse response |
 | `server/public/model/thread_summary.go` | Response model types |
 | `webapp/channels/src/components/thread_summary_panel/thread_summary_panel.tsx` | RHS summary panel component |
 | `webapp/channels/src/components/thread_summary_panel/thread_summary_panel.scss` | Styles |
@@ -28,11 +38,14 @@
 | File | Change |
 |------|--------|
 | `server/channels/api4/api.go` | Add `api.InitThreadSummary()` call |
-| `webapp/channels/src/utils/constants.tsx` | Add `THREAD_SUMMARY` to RHSStates |
+| `webapp/channels/src/utils/constants.tsx` | Add `THREAD_SUMMARY` to RHSStates + ActionTypes |
 | `webapp/channels/src/reducers/views/index.ts` | Register threadSummary reducer |
 | `webapp/platform/client/src/client4.ts` | Add `postThreadSummary()` method |
 | `webapp/channels/src/components/dot_menu/dot_menu.tsx` | Add "Summarize Thread" menu item |
-| `webapp/channels/src/components/rhs_thread/rhs_thread.tsx` | Add ✨ button in thread header |
+| `webapp/channels/src/components/dot_menu/index.ts` | Wire `showThreadSummary` action |
+| `webapp/channels/src/components/sidebar_right/index.ts` | Exclude THREAD_SUMMARY from `postRightVisible` |
+| `webapp/channels/src/components/sidebar_right/sidebar_right.tsx` | Render ThreadSummaryPanel |
+| `webapp/channels/src/components/rhs_header_post/rhs_header_post.tsx` | Add ✨ summarize button |
 
 ---
 
@@ -55,18 +68,18 @@ type ThreadKeyPoint struct {
 }
 
 type ThreadSummaryResponse struct {
-	Summary         string          `json:"summary"`
+	Summary         string           `json:"summary"`
 	KeyPoints       []ThreadKeyPoint `json:"key_points"`
-	Participants    []string        `json:"participants"`
-	ThreadPostCount int             `json:"thread_post_count"`
-	Model           string          `json:"model"`
+	Participants    []string         `json:"participants"`
+	ThreadPostCount int              `json:"thread_post_count"`
+	Model           string           `json:"model"`
 }
 
 type ThreadSummaryLLMResponse struct {
 	Summary   string `json:"summary"`
 	KeyPoints []struct {
-		Text            string `json:"text"`
-		PostIdsIndices  []int  `json:"post_ids_indices"`
+		Text    string   `json:"text"`
+		PostIDs []string `json:"post_ids"`
 	} `json:"key_points"`
 }
 
@@ -95,6 +108,10 @@ git commit -m "feat(thread-summary): add response model types"
 **Files:**
 - Create: `server/channels/app/thread_summary.go`
 
+Uses the same `BridgeCompletionRequest` pattern as `server/channels/app/summarization.go`: structured request with Operation, Messages (system + user), JSONOutputFormat, UserID, ChannelID.
+
+Post IDs are embedded directly in the prompt text as `[post_id:abc123]` markers — the LLM echoes them back in key_points, and the parser extracts them. No ambiguous numeric indices.
+
 - [ ] **Step 1: Create the app-layer function**
 
 ```go
@@ -105,6 +122,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -113,38 +131,31 @@ import (
 	"github.com/mattermost/mattermost/server/public/shared/request"
 )
 
-func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID string) (*model.ThreadSummaryResponse, *model.AppError) {
-	// 1. Fetch the root post
-	rootPost, err := a.GetSinglePost(rctx, rootPostID, false)
-	if err != nil {
-		return nil, err
-	}
+const threadSummaryJSONSchema = `{"type":"object","properties":{"summary":{"type":"string"},"key_points":{"type":"array","items":{"type":"object","properties":{"text":{"type":"string"},"post_ids":{"type":"array","items":{"type":"string"}}},"required":["text","post_ids"]}}},"required":["summary","key_points"]}`
 
-	// 2. Verify it's a root post with replies
-	if rootPost.RootId != "" {
-		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.not_root_post", nil, "post is a reply, not a root post", http.StatusBadRequest)
-	}
+var postIDRefRegex = regexp.MustCompile(`\[post_id:([a-zA-Z0-9]+)\]`)
 
-	// 3. Fetch all thread posts
+func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID string, channel *model.Channel) (*model.ThreadSummaryResponse, *model.AppError) {
+	// 1. Fetch all thread posts
 	opts := model.GetPostsOptions{
 		SkipFetchThreads: true,
 	}
-	postList, err := a.GetPostThread(rctx, rootPostID, opts, userID)
-	if err != nil {
-		return nil, err
+	postList, appErr := a.GetPostThread(rctx, rootPostID, opts, userID)
+	if appErr != nil {
+		return nil, appErr
 	}
 
 	if len(postList.Order) <= 1 {
 		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.no_replies", nil, "thread has no replies", http.StatusBadRequest)
 	}
 
-	// 4. Get channel for context
-	channel, err := a.GetChannel(rctx, rootPost.ChannelId)
-	if err != nil {
-		return nil, err
+	// 2. Check AI Bridge availability
+	available, _ := a.GetAIPluginBridgeStatus(rctx)
+	if !available {
+		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.ai_unavailable", nil, "AI service is not available", http.StatusServiceUnavailable)
 	}
 
-	// 5. Build sorted posts list and format for LLM
+	// 3. Build sorted posts list and format for LLM
 	posts := make([]*model.Post, 0, len(postList.Posts))
 	for _, post := range postList.Posts {
 		posts = append(posts, post)
@@ -153,24 +164,20 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 		return posts[i].CreateAt < posts[j].CreateAt
 	})
 
-	// Collect participants and build formatted text
 	participantSet := make(map[string]bool)
-	postIDs := make([]string, 0, len(posts))
 	var sb strings.Builder
-
 	sb.WriteString(fmt.Sprintf("Thread in #%s (%d messages)\n\n", channel.DisplayName, len(posts)))
 
-	for i, post := range posts {
+	for _, post := range posts {
 		user, userErr := a.GetUser(post.UserId)
 		username := "unknown"
 		if userErr == nil {
 			username = user.Username
 		}
 		participantSet[username] = true
-		postIDs = append(postIDs, post.Id)
 
 		t := time.Unix(post.CreateAt/1000, 0).UTC().Format("2006-01-02 15:04")
-		sb.WriteString(fmt.Sprintf("[%d] [%s] @%s:\n%s\n\n", i+1, t, username, post.Message))
+		sb.WriteString(fmt.Sprintf("[post_id:%s] [%s] @%s:\n%s\n\n", post.Id, t, username, post.Message))
 	}
 
 	participants := make([]string, 0, len(participantSet))
@@ -179,32 +186,38 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 	}
 	sort.Strings(participants)
 
-	// 6. Check AI Bridge availability
-	available, _ := a.GetAIPluginBridgeStatus(rctx)
-	if !available {
-		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.ai_unavailable", nil, "AI service is not available", http.StatusServiceUnavailable)
-	}
-
-	// 7. Build prompt and call LLM
-	prompt := fmt.Sprintf(`Summarize this thread discussion. Provide:
+	// 4. Build BridgeCompletionRequest (same pattern as summarization.go)
+	systemPrompt := "You are a thread summarizer. Given a thread of messages, produce a structured JSON summary. Each message is prefixed with [post_id:XXX]. In your key_points, include the post_id values for referenced messages in the post_ids array."
+	userPrompt := fmt.Sprintf(`Summarize this thread. Provide:
 1. A short summary (2-3 sentences) capturing the main topic and outcome.
-2. Key points as bullet items, each mentioning the participant (@username) and their contribution. Reference the message number in brackets like [1], [2].
+2. Key points as bullet items, each mentioning the participant (@username) and their contribution.
 
-Respond ONLY with valid JSON, no markdown:
-{"summary": "...", "key_points": [{"text": "@user did X [1]", "post_ids_indices": [0]}]}
+For each key point, include the post_ids of the messages you reference.
 
 Thread:
 %s`, sb.String())
 
-	llmResponse, llmErr := a.ch.agentsBridge.ServiceCompletion(userID, "", prompt)
+	req := BridgeCompletionRequest{
+		Operation:       BridgeOperationRecapSummary,
+		ClientOperation: "recaps",
+		OperationSubType: "summarize_thread",
+		Messages: []BridgeCompletionMessage{
+			{Role: "system", Message: systemPrompt},
+			{Role: "user", Message: userPrompt},
+		},
+		JSONOutputFormat: threadSummaryJSONSchema,
+		UserID:           userID,
+		ChannelID:        channel.Id,
+	}
+
+	llmResponse, llmErr := a.ch.agentsBridge.AgentCompletion(userID, "", req)
 	if llmErr != nil {
 		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.llm_error", nil, llmErr.Error(), http.StatusInternalServerError)
 	}
 
-	// 8. Parse LLM response
+	// 5. Parse LLM response
 	var parsed model.ThreadSummaryLLMResponse
 	if jsonErr := json.Unmarshal([]byte(llmResponse), &parsed); jsonErr != nil {
-		// Fallback: use raw text as summary
 		return &model.ThreadSummaryResponse{
 			Summary:         llmResponse,
 			KeyPoints:       []model.ThreadKeyPoint{},
@@ -214,18 +227,31 @@ Thread:
 		}, nil
 	}
 
-	// 9. Map post indices to actual post IDs
+	// 6. Validate post IDs — only keep IDs that exist in this thread
+	validIDs := make(map[string]bool, len(posts))
+	for _, post := range posts {
+		validIDs[post.Id] = true
+	}
+
 	keyPoints := make([]model.ThreadKeyPoint, 0, len(parsed.KeyPoints))
 	for _, kp := range parsed.KeyPoints {
-		ids := make([]string, 0, len(kp.PostIdsIndices))
-		for _, idx := range kp.PostIdsIndices {
-			if idx >= 0 && idx < len(postIDs) {
-				ids = append(ids, postIDs[idx])
+		filteredIDs := make([]string, 0, len(kp.PostIDs))
+		for _, id := range kp.PostIDs {
+			if validIDs[id] {
+				filteredIDs = append(filteredIDs, id)
+			}
+		}
+		// Also extract any [post_id:XXX] references from text
+		if matches := postIDRefRegex.FindAllStringSubmatch(kp.Text, -1); matches != nil {
+			for _, m := range matches {
+				if validIDs[m[1]] {
+					filteredIDs = append(filteredIDs, m[1])
+				}
 			}
 		}
 		keyPoints = append(keyPoints, model.ThreadKeyPoint{
 			Text:    kp.Text,
-			PostIDs: ids,
+			PostIDs: filteredIDs,
 		})
 	}
 
@@ -242,13 +268,13 @@ Thread:
 - [ ] **Step 2: Verify it compiles**
 
 Run: `cd /Users/dmitrybakhtin/WebstormProjects/mattermost/server && go build ./channels/app/...`
-Expected: No errors (or compile errors to fix — `agentsBridge` access may need `a.ch.agentsBridge` pattern check)
+Expected: No errors. If `BridgeCompletionRequest`, `BridgeCompletionMessage`, `BridgeOperationRecapSummary` are not exported, check `agents_bridge.go` for exact type names and adjust.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add server/channels/app/thread_summary.go
-git commit -m "feat(thread-summary): add app-layer business logic for thread summarization"
+git commit -m "feat(thread-summary): add app-layer with BridgeCompletionRequest"
 ```
 
 ---
@@ -257,7 +283,9 @@ git commit -m "feat(thread-summary): add app-layer business logic for thread sum
 
 **Files:**
 - Create: `server/channels/api4/thread_summary.go`
-- Modify: `server/channels/api4/api.go` (add `api.InitThreadSummary()` call after `api.InitPost()` at ~line 343)
+- Modify: `server/channels/api4/api.go` (add `api.InitThreadSummary()` call after `api.InitPost()`)
+
+Uses `GetPostIfAuthorized` for proper authorization (not `GetSinglePost`).
 
 - [ ] **Step 1: Create the handler file**
 
@@ -280,10 +308,16 @@ func postThreadSummary(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check user has access to the post's channel
-	post, appErr := c.App.GetSinglePost(c.AppContext, c.Params.PostId, false)
+	// GetPostIfAuthorized checks channel read permission internally
+	post, appErr := c.App.GetPostIfAuthorized(c.AppContext, c.Params.PostId, c.AppContext.Session(), false)
 	if appErr != nil {
 		c.Err = appErr
+		return
+	}
+
+	// Must be a root post
+	if post.RootId != "" {
+		c.Err = model.NewAppError("postThreadSummary", "api.post.summary.not_root_post", nil, "post is a reply, not a root post", http.StatusBadRequest)
 		return
 	}
 
@@ -293,13 +327,7 @@ func postThreadSummary(c *Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hasPermission, _ := c.App.SessionHasPermissionToReadChannel(c.AppContext, *c.AppContext.Session(), channel)
-	if !hasPermission {
-		c.SetPermissionError()
-		return
-	}
-
-	summary, appErr := c.App.GetThreadSummary(c.AppContext, c.Params.PostId, c.AppContext.Session().UserId)
+	summary, appErr := c.App.GetThreadSummary(c.AppContext, c.Params.PostId, c.AppContext.Session().UserId, channel)
 	if appErr != nil {
 		c.Err = appErr
 		return
@@ -307,28 +335,31 @@ func postThreadSummary(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(summary); err != nil {
-		c.Logger.Warn("Error writing thread summary response", err)
+		c.Logger.Warn("Error writing thread summary response")
 	}
 }
 ```
 
-- [ ] **Step 2: Register the route in api.go**
+- [ ] **Step 2: Add missing import in handler**
 
-In `server/channels/api4/api.go`, after the line `api.InitPost()` (~line 343), add:
+Add `"github.com/mattermost/mattermost/server/public/model"` to imports if the `model.NewAppError` call requires it.
+
+- [ ] **Step 3: Register the route in api.go**
+
+In `server/channels/api4/api.go`, find `api.InitPost()` and add after it:
 ```go
-api.InitThreadSummary()
+	api.InitThreadSummary()
 ```
 
-- [ ] **Step 3: Verify it compiles**
+- [ ] **Step 4: Verify it compiles**
 
 Run: `cd /Users/dmitrybakhtin/WebstormProjects/mattermost/server && go build ./channels/api4/...`
-Expected: No errors
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add server/channels/api4/thread_summary.go server/channels/api4/api.go
-git commit -m "feat(thread-summary): add POST /api/v4/posts/{post_id}/summary endpoint"
+git commit -m "feat(thread-summary): add POST /posts/{id}/summary endpoint with GetPostIfAuthorized"
 ```
 
 ---
@@ -336,27 +367,26 @@ git commit -m "feat(thread-summary): add POST /api/v4/posts/{post_id}/summary en
 ## Task 4: Frontend — Constants + Redux State
 
 **Files:**
-- Modify: `webapp/channels/src/utils/constants.tsx` (~line 991, add to RHSStates)
+- Modify: `webapp/channels/src/utils/constants.tsx`
 - Create: `webapp/channels/src/reducers/views/thread_summary.ts`
 - Create: `webapp/channels/src/selectors/views/thread_summary.ts`
-- Create: `webapp/channels/src/actions/views/thread_summary.ts`
-- Modify: `webapp/channels/src/reducers/views/index.ts` (register reducer)
+- Modify: `webapp/channels/src/reducers/views/index.ts`
 
 - [ ] **Step 1: Add THREAD_SUMMARY to RHSStates**
 
-In `webapp/channels/src/utils/constants.tsx`, add after `EDIT_HISTORY: 'edit-history'` (line 991):
+In `webapp/channels/src/utils/constants.tsx`, add after `EDIT_HISTORY: 'edit-history'`:
 ```typescript
-THREAD_SUMMARY: 'thread-summary',
+    THREAD_SUMMARY: 'thread-summary',
 ```
 
 - [ ] **Step 2: Add ActionTypes for thread summary**
 
-In the same file `constants.tsx`, find the `ActionTypes` object and add inside it:
+In the `ActionTypes` object in the same file, add:
 ```typescript
-THREAD_SUMMARY_REQUEST: 'thread_summary_request',
-THREAD_SUMMARY_SUCCESS: 'thread_summary_success',
-THREAD_SUMMARY_FAILURE: 'thread_summary_failure',
-THREAD_SUMMARY_CLEAR: 'thread_summary_clear',
+    THREAD_SUMMARY_REQUEST: 'thread_summary_request',
+    THREAD_SUMMARY_SUCCESS: 'thread_summary_success',
+    THREAD_SUMMARY_FAILURE: 'thread_summary_failure',
+    THREAD_SUMMARY_CLEAR: 'thread_summary_clear',
 ```
 
 - [ ] **Step 3: Create the reducer**
@@ -376,13 +406,6 @@ export interface ThreadSummaryData {
     participants: string[];
     thread_post_count: number;
     model: string;
-}
-
-export interface ThreadSummaryState {
-    loading: boolean;
-    postId: string | null;
-    data: ThreadSummaryData | null;
-    error: string | null;
 }
 
 function loading(state = false, action: {type: string}) {
@@ -433,12 +456,7 @@ function error(state: string | null = null, action: {type: string; error?: strin
     }
 }
 
-export default combineReducers({
-    loading,
-    postId,
-    data,
-    error,
-});
+export default combineReducers({loading, postId, data, error});
 ```
 
 - [ ] **Step 4: Create selectors**
@@ -466,7 +484,7 @@ export function getThreadSummaryPostId(state: GlobalState): string | null {
 
 - [ ] **Step 5: Register reducer in views/index.ts**
 
-In `webapp/channels/src/reducers/views/index.ts`, add import:
+In `webapp/channels/src/reducers/views/index.ts`, add:
 ```typescript
 import threadSummary from './thread_summary';
 ```
@@ -479,20 +497,24 @@ git add webapp/channels/src/utils/constants.tsx \
         webapp/channels/src/reducers/views/thread_summary.ts \
         webapp/channels/src/selectors/views/thread_summary.ts \
         webapp/channels/src/reducers/views/index.ts
-git commit -m "feat(thread-summary): add Redux state, reducer, selectors, and RHS constants"
+git commit -m "feat(thread-summary): add Redux state, reducer, selectors, RHS constants"
 ```
 
 ---
 
-## Task 5: Frontend — Client4 Method + Actions
+## Task 5: Frontend — Client4 Method + Actions (fixed RHS flow)
 
 **Files:**
 - Modify: `webapp/platform/client/src/client4.ts`
 - Create: `webapp/channels/src/actions/views/thread_summary.ts`
 
+Key fix: `showThreadSummary` does NOT dispatch `SELECT_POST` (which would clear `rhsState`). Instead it dispatches `UPDATE_RHS_STATE` with the postId embedded, and stores the previous state for back navigation.
+
+Import uses `types/store` (not `mattermost-redux/types/actions`).
+
 - [ ] **Step 1: Add Client4 method**
 
-In `webapp/platform/client/src/client4.ts`, add near the other post methods (after `getPostThread`):
+In `webapp/platform/client/src/client4.ts`, add after `getPaginatedPostThread`:
 
 ```typescript
 postThreadSummary = (postId: string) => {
@@ -516,21 +538,24 @@ postThreadSummary = (postId: string) => {
 import {Client4} from 'mattermost-redux/client';
 
 import {ActionTypes, RHSStates} from 'utils/constants';
+import {getRhsState, getSelectedPostId} from 'selectors/rhs';
 
-import type {DispatchFunc} from 'mattermost-redux/types/actions';
+import type {DispatchFunc, GetStateFunc} from 'types/store';
 
 export function showThreadSummary(postId: string) {
-    return (dispatch: DispatchFunc) => {
+    return (dispatch: DispatchFunc, getState: GetStateFunc) => {
+        // Preserve current RHS state for back navigation
+        const currentRhsState = getRhsState(getState());
+        const currentPostId = getSelectedPostId(getState());
+
+        // Push current state to previousRhsStates stack via RHS_GO_BACK-compatible dispatch
+        // UPDATE_RHS_STATE pushes the current state onto the stack in the reducer
         dispatch({
             type: ActionTypes.UPDATE_RHS_STATE,
             state: RHSStates.THREAD_SUMMARY,
-        });
-
-        dispatch({
-            type: ActionTypes.SELECT_POST,
             postId,
             channelId: '',
-            timestamp: Date.now(),
+            previousRhsState: currentRhsState,
         });
 
         dispatch(fetchThreadSummary(postId));
@@ -565,9 +590,7 @@ export function fetchThreadSummary(postId: string) {
 }
 
 export function clearThreadSummary() {
-    return {
-        type: ActionTypes.THREAD_SUMMARY_CLEAR,
-    };
+    return {type: ActionTypes.THREAD_SUMMARY_CLEAR};
 }
 ```
 
@@ -576,7 +599,7 @@ export function clearThreadSummary() {
 ```bash
 git add webapp/platform/client/src/client4.ts \
         webapp/channels/src/actions/views/thread_summary.ts
-git commit -m "feat(thread-summary): add Client4 API method and Redux actions"
+git commit -m "feat(thread-summary): add Client4 method and actions with correct RHS flow"
 ```
 
 ---
@@ -588,331 +611,9 @@ git commit -m "feat(thread-summary): add Client4 API method and Redux actions"
 - Create: `webapp/channels/src/components/thread_summary_panel/thread_summary_panel.scss`
 - Create: `webapp/channels/src/components/thread_summary_panel/index.ts`
 
-- [ ] **Step 1: Create styles**
+- [ ] **Step 1: Create styles** (same as original plan — see `thread_summary_panel.scss` in v1)
 
-```scss
-// webapp/channels/src/components/thread_summary_panel/thread_summary_panel.scss
-.ThreadSummaryPanel {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-
-    &__header {
-        display: flex;
-        align-items: center;
-        padding: 12px 16px;
-        border-bottom: 1px solid rgba(var(--center-channel-color-rgb), 0.08);
-        font-weight: 600;
-        font-size: 16px;
-        gap: 8px;
-
-        .back-button {
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            color: rgba(var(--center-channel-color-rgb), 0.56);
-
-            &:hover {
-                color: rgba(var(--center-channel-color-rgb), 0.72);
-            }
-        }
-
-        .title {
-            flex: 1;
-        }
-
-        .close-button {
-            cursor: pointer;
-            color: rgba(var(--center-channel-color-rgb), 0.56);
-
-            &:hover {
-                color: rgba(var(--center-channel-color-rgb), 0.72);
-            }
-        }
-    }
-
-    &__content {
-        flex: 1;
-        overflow-y: auto;
-        padding: 16px;
-    }
-
-    &__channel-info {
-        font-size: 13px;
-        color: rgba(var(--center-channel-color-rgb), 0.56);
-        margin-bottom: 16px;
-    }
-
-    &__summary {
-        font-size: 14px;
-        line-height: 1.6;
-        margin-bottom: 16px;
-        color: var(--center-channel-color);
-    }
-
-    &__details-toggle {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        cursor: pointer;
-        font-size: 13px;
-        font-weight: 600;
-        color: var(--button-bg);
-        margin-bottom: 12px;
-        user-select: none;
-    }
-
-    &__key-points {
-        list-style: none;
-        padding: 0;
-        margin: 0 0 16px;
-
-        li {
-            position: relative;
-            padding: 6px 0 6px 16px;
-            font-size: 14px;
-            line-height: 1.5;
-
-            &::before {
-                content: '•';
-                position: absolute;
-                left: 0;
-                color: var(--button-bg);
-                font-weight: bold;
-            }
-        }
-    }
-
-    &__footer {
-        padding: 12px 16px;
-        border-top: 1px solid rgba(var(--center-channel-color-rgb), 0.08);
-        font-size: 12px;
-        color: rgba(var(--center-channel-color-rgb), 0.56);
-
-        .feedback-buttons {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
-
-            button {
-                background: none;
-                border: 1px solid rgba(var(--center-channel-color-rgb), 0.16);
-                border-radius: 4px;
-                padding: 4px 8px;
-                cursor: pointer;
-                font-size: 14px;
-
-                &:hover {
-                    background: rgba(var(--center-channel-color-rgb), 0.08);
-                }
-            }
-        }
-    }
-
-    &__loading {
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        padding: 48px 16px;
-        gap: 12px;
-        color: rgba(var(--center-channel-color-rgb), 0.56);
-        font-size: 14px;
-    }
-
-    &__error {
-        padding: 16px;
-        text-align: center;
-        color: var(--error-text);
-        font-size: 14px;
-
-        .retry-button {
-            margin-top: 12px;
-            color: var(--button-bg);
-            cursor: pointer;
-            font-weight: 600;
-
-            &:hover {
-                text-decoration: underline;
-            }
-        }
-    }
-}
-```
-
-- [ ] **Step 2: Create component**
-
-```tsx
-// webapp/channels/src/components/thread_summary_panel/thread_summary_panel.tsx
-import React, {memo, useCallback, useState} from 'react';
-import {useDispatch, useSelector} from 'react-redux';
-import {FormattedMessage} from 'react-intl';
-
-import {
-    ArrowLeftIcon,
-    CloseIcon,
-    ChevronRightIcon,
-    ChevronDownIcon,
-    LoadingOutlineIcon,
-} from '@mattermost/compass-icons/components';
-
-import {closeRightHandSide, goBack} from 'actions/views/rhs';
-import {fetchThreadSummary} from 'actions/views/thread_summary';
-import {
-    getThreadSummaryLoading,
-    getThreadSummaryData,
-    getThreadSummaryError,
-    getThreadSummaryPostId,
-} from 'selectors/views/thread_summary';
-
-import './thread_summary_panel.scss';
-
-const ThreadSummaryPanel: React.FC = () => {
-    const dispatch = useDispatch();
-    const loading = useSelector(getThreadSummaryLoading);
-    const data = useSelector(getThreadSummaryData);
-    const error = useSelector(getThreadSummaryError);
-    const postId = useSelector(getThreadSummaryPostId);
-    const [detailsExpanded, setDetailsExpanded] = useState(false);
-
-    const handleBack = useCallback(() => {
-        dispatch(goBack());
-    }, [dispatch]);
-
-    const handleClose = useCallback(() => {
-        dispatch(closeRightHandSide());
-    }, [dispatch]);
-
-    const handleRetry = useCallback(() => {
-        if (postId) {
-            dispatch(fetchThreadSummary(postId));
-        }
-    }, [dispatch, postId]);
-
-    const toggleDetails = useCallback(() => {
-        setDetailsExpanded((prev) => !prev);
-    }, []);
-
-    return (
-        <div className='ThreadSummaryPanel'>
-            <div className='ThreadSummaryPanel__header'>
-                <span
-                    className='back-button'
-                    onClick={handleBack}
-                    role='button'
-                    tabIndex={0}
-                >
-                    <ArrowLeftIcon size={20}/>
-                </span>
-                <span className='title'>
-                    <FormattedMessage
-                        id='thread_summary.title'
-                        defaultMessage='AI Summary'
-                    />
-                </span>
-                <span
-                    className='close-button'
-                    onClick={handleClose}
-                    role='button'
-                    tabIndex={0}
-                >
-                    <CloseIcon size={20}/>
-                </span>
-            </div>
-
-            <div className='ThreadSummaryPanel__content'>
-                {loading && (
-                    <div className='ThreadSummaryPanel__loading'>
-                        <LoadingOutlineIcon size={24}/>
-                        <FormattedMessage
-                            id='thread_summary.loading'
-                            defaultMessage='Generating summary...'
-                        />
-                    </div>
-                )}
-
-                {error && !loading && (
-                    <div className='ThreadSummaryPanel__error'>
-                        <p>{error}</p>
-                        <span
-                            className='retry-button'
-                            onClick={handleRetry}
-                            role='button'
-                            tabIndex={0}
-                        >
-                            <FormattedMessage
-                                id='thread_summary.retry'
-                                defaultMessage='Try again'
-                            />
-                        </span>
-                    </div>
-                )}
-
-                {data && !loading && (
-                    <>
-                        <div className='ThreadSummaryPanel__channel-info'>
-                            <FormattedMessage
-                                id='thread_summary.post_count'
-                                defaultMessage='{count} messages • {participants} participants'
-                                values={{
-                                    count: data.thread_post_count,
-                                    participants: data.participants.length,
-                                }}
-                            />
-                        </div>
-
-                        <div className='ThreadSummaryPanel__summary'>
-                            {data.summary}
-                        </div>
-
-                        {data.key_points.length > 0 && (
-                            <>
-                                <div
-                                    className='ThreadSummaryPanel__details-toggle'
-                                    onClick={toggleDetails}
-                                    role='button'
-                                    tabIndex={0}
-                                >
-                                    {detailsExpanded ? (
-                                        <ChevronDownIcon size={16}/>
-                                    ) : (
-                                        <ChevronRightIcon size={16}/>
-                                    )}
-                                    <FormattedMessage
-                                        id={detailsExpanded ? 'thread_summary.less_detail' : 'thread_summary.more_detail'}
-                                        defaultMessage={detailsExpanded ? 'Less detail' : 'More detail'}
-                                    />
-                                </div>
-
-                                {detailsExpanded && (
-                                    <ul className='ThreadSummaryPanel__key-points'>
-                                        {data.key_points.map((point, idx) => (
-                                            <li key={idx}>{point.text}</li>
-                                        ))}
-                                    </ul>
-                                )}
-                            </>
-                        )}
-                    </>
-                )}
-            </div>
-
-            <div className='ThreadSummaryPanel__footer'>
-                <FormattedMessage
-                    id='thread_summary.disclaimer'
-                    defaultMessage='AI-generated summary. May be inaccurate.'
-                />
-                <div className='feedback-buttons'>
-                    <button type='button'>{'👍'}</button>
-                    <button type='button'>{'👎'}</button>
-                </div>
-            </div>
-        </div>
-    );
-};
-
-export default memo(ThreadSummaryPanel);
-```
+- [ ] **Step 2: Create component** (same as original plan — see `thread_summary_panel.tsx` in v1)
 
 - [ ] **Step 3: Create index export**
 
@@ -930,68 +631,91 @@ git commit -m "feat(thread-summary): add ThreadSummaryPanel RHS component"
 
 ---
 
-## Task 7: Frontend — Wire RHS to Show Summary Panel
+## Task 7: Frontend — Wire RHS Routing (critical fix)
 
 **Files:**
-- Modify: RHS controller to render ThreadSummaryPanel when `rhsState === THREAD_SUMMARY`
+- Modify: `webapp/channels/src/components/sidebar_right/index.ts`
+- Modify: `webapp/channels/src/components/sidebar_right/sidebar_right.tsx`
 
-- [ ] **Step 1: Find the RHS controller**
+The key fix: `postRightVisible` on line 44 of `index.ts` currently renders `RhsThread` whenever `selectedPostId` is set. We must exclude `THREAD_SUMMARY` from this check (same pattern as `EDIT_HISTORY`).
 
-The RHS content renderer needs to be located — it conditionally renders based on `rhsState`. Search for where `RHSStates.PIN`, `RHSStates.CHANNEL_INFO` etc. are checked to render different panels. This is likely in `webapp/channels/src/components/sidebar_right/sidebar_right.tsx` or similar. Find it and add:
+- [ ] **Step 1: Fix sidebar_right/index.ts**
 
+At line 44, change:
+```typescript
+postRightVisible: Boolean(selectedPostId) && rhsState !== RHSStates.EDIT_HISTORY,
+```
+To:
+```typescript
+postRightVisible: Boolean(selectedPostId) && rhsState !== RHSStates.EDIT_HISTORY && rhsState !== RHSStates.THREAD_SUMMARY,
+```
+
+Add a new prop:
+```typescript
+isThreadSummary: rhsState === RHSStates.THREAD_SUMMARY,
+```
+
+- [ ] **Step 2: Add rendering in sidebar_right.tsx**
+
+Import:
 ```typescript
 import ThreadSummaryPanel from 'components/thread_summary_panel';
 ```
 
-And in the render logic, add a case:
+In the render logic (after `postRightVisible` block, ~line 298), add before `postCardVisible`:
 ```typescript
-case RHSStates.THREAD_SUMMARY:
-    content = <ThreadSummaryPanel/>;
-    break;
+} else if (isThreadSummary) {
+    content = (
+        <div className='post-right__container'>
+            <ThreadSummaryPanel/>
+        </div>
+    );
+}
 ```
 
-- [ ] **Step 2: Verify no type errors**
+Add `isThreadSummary` to the destructured props.
+
+- [ ] **Step 3: Verify no type errors**
 
 Run: `cd /Users/dmitrybakhtin/WebstormProjects/mattermost/webapp && make check-types 2>&1 | head -20`
-Expected: No new errors
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add webapp/channels/src/components/sidebar_right/
-git commit -m "feat(thread-summary): wire ThreadSummaryPanel into RHS controller"
+git commit -m "feat(thread-summary): wire RHS routing with THREAD_SUMMARY exclusion"
 ```
 
 ---
 
-## Task 8: Frontend — DotMenu "Summarize Thread" Item
+## Task 8: Frontend — DotMenu "Summarize Thread" (fixed)
 
 **Files:**
 - Modify: `webapp/channels/src/components/dot_menu/dot_menu.tsx`
+- Modify: `webapp/channels/src/components/dot_menu/index.ts`
 
-- [ ] **Step 1: Add handler and menu item**
+Uses `threadReplyCount` prop (already computed in connector at index.ts:98), not `post.reply_count`.
 
-Import at top of dot_menu.tsx:
+- [ ] **Step 1: Add action to connector (index.ts)**
+
+In `webapp/channels/src/components/dot_menu/index.ts`, import and add to `mapDispatchToProps`:
 ```typescript
 import {showThreadSummary} from 'actions/views/thread_summary';
 ```
+Add `showThreadSummary` to the actions object.
 
-Add handler method to the DotMenuClass:
+- [ ] **Step 2: Add handler and menu item (dot_menu.tsx)**
+
+Add handler:
 ```typescript
 handleSummarizeThread = (): void => {
     this.props.actions.showThreadSummary(this.props.post.id);
 };
 ```
 
-Add the action to the `mapDispatchToProps` / `actions` object:
-```typescript
-showThreadSummary,
-```
-
-Add the menu item in the render method, after the "Follow Thread" item and before "Mark as Unread". Only show on root posts (not replies) that have replies:
-
+Add menu item (after Follow Thread, before Mark as Unread). Use `threadReplyCount`:
 ```tsx
-{this.props.post.root_id === '' && this.props.post.reply_count > 0 && (
+{this.props.post.root_id === '' && this.props.threadReplyCount > 0 && (
     <Menu.Item
         id={`summarize_thread_${this.props.post.id}`}
         labels={
@@ -1000,24 +724,21 @@ Add the menu item in the render method, after the "Follow Thread" item and befor
                 defaultMessage='Summarize Thread'
             />
         }
-        leadingElement={<AutoAwesomeOutlineIcon size={18}/>}
+        leadingElement={<LightbulbOutlineIcon size={18}/>}
         onClick={this.handleSummarizeThread}
     />
 )}
 ```
 
-Import the icon (or use an existing one from compass-icons):
-```typescript
-import {AutoAwesomeOutlineIcon} from '@mattermost/compass-icons/components';
-```
+Import: `import {LightbulbOutlineIcon} from '@mattermost/compass-icons/components';`
 
-If `AutoAwesomeOutlineIcon` doesn't exist, use `LightbulbOutlineIcon` or `SparklesIcon` instead.
+If `LightbulbOutlineIcon` doesn't exist, check available icons with: `grep -r "export.*Icon" webapp/node_modules/@mattermost/compass-icons/components/index.ts | grep -i light`
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add webapp/channels/src/components/dot_menu/dot_menu.tsx
-git commit -m "feat(thread-summary): add Summarize Thread to post dot menu"
+git add webapp/channels/src/components/dot_menu/
+git commit -m "feat(thread-summary): add Summarize Thread to DotMenu using threadReplyCount"
 ```
 
 ---
@@ -1025,54 +746,123 @@ git commit -m "feat(thread-summary): add Summarize Thread to post dot menu"
 ## Task 9: Frontend — Thread Header ✨ Button
 
 **Files:**
-- Modify: `webapp/channels/src/components/rhs_thread/rhs_thread.tsx`
+- Modify: `webapp/channels/src/components/rhs_header_post/rhs_header_post.tsx`
 
-- [ ] **Step 1: Add summarize button to thread RHS header**
+- [ ] **Step 1: Add summarize button to RhsHeaderPost**
 
-In `rhs_thread.tsx`, the component renders `RhsHeaderPost`. We need to either:
-a) Add a button inside this component, or
-b) Modify `RhsHeaderPost` to include the button.
-
-Find `RhsHeaderPost` component and add a summarize button. Add imports:
+Read `rhs_header_post.tsx` to understand its structure. Add a button near the existing header actions (shrink/expand, close). Import:
 
 ```typescript
-import {useDispatch} from 'react-redux';
+import {LightbulbOutlineIcon} from '@mattermost/compass-icons/components';
 import {showThreadSummary} from 'actions/views/thread_summary';
 ```
 
-Add a button in the header area (near the close button) that calls `dispatch(showThreadSummary(selected.id))` when clicked. Use `LightbulbOutlineIcon` or similar compass icon with a tooltip "Summarize Thread".
+Add a clickable icon button that calls `dispatch(showThreadSummary(rootPostId))`. Include a tooltip:
+
+```tsx
+<OverlayTrigger
+    trigger={['hover', 'focus']}
+    placement='bottom'
+    overlay={<Tooltip id='summarizeThreadTooltip'>
+        <FormattedMessage id='rhs_header.summarize_thread' defaultMessage='Summarize Thread'/>
+    </Tooltip>}
+>
+    <button
+        type='button'
+        className='sidebar--right__subheader'
+        onClick={() => dispatch(showThreadSummary(rootPostId))}
+    >
+        <LightbulbOutlineIcon size={18}/>
+    </button>
+</OverlayTrigger>
+```
 
 - [ ] **Step 2: Commit**
 
 ```bash
-git add webapp/channels/src/components/rhs_thread/ webapp/channels/src/components/rhs_header_post/
+git add webapp/channels/src/components/rhs_header_post/
 git commit -m "feat(thread-summary): add summarize button to thread RHS header"
 ```
 
 ---
 
-## Task 10: Integration Test — Full Flow
+## Task 10: Backend Tests
 
-- [ ] **Step 1: Start the dev server and verify**
+**Files:**
+- Create: `server/channels/api4/thread_summary_test.go`
 
-Run: `cd /Users/dmitrybakhtin/WebstormProjects/mattermost/server && make run-server` (if not running)
-Run: `cd /Users/dmitrybakhtin/WebstormProjects/mattermost/webapp && make dev` (if not running)
+- [ ] **Step 1: Write API test**
 
-- [ ] **Step 2: Manual test via Playwright or browser**
+Use the e2e agents bridge test helper (`AIBridgeTestHelperConfig`) to mock LLM responses. Test scenarios:
+- Happy path: root post with replies → 200 + valid summary JSON
+- Not a root post (reply) → 400
+- Post not found → 404
+- Thread with no replies → 400
+- AI Bridge unavailable → 503
+- User without channel access → 403
 
-1. Open http://localhost:9005, login as sysadmin
-2. Navigate to a channel with threads
-3. Click "..." on a root post with replies
-4. Verify "Summarize Thread" appears in the menu
-5. Click it — RHS should show the ThreadSummaryPanel with loading state
-6. If AI Bridge is configured: summary appears; if not: error with "AI service unavailable" and retry button
-7. Click "More detail" — key points expand
-8. Click "Less detail" — they collapse
-9. Click Back arrow — returns to thread view
+Follow patterns in existing `server/channels/api4/post_test.go`.
 
+- [ ] **Step 2: Run tests**
+
+Run: `cd /Users/dmitrybakhtin/WebstormProjects/mattermost/server && go test ./channels/api4/ -run TestPostThreadSummary -v`
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add server/channels/api4/thread_summary_test.go
+git commit -m "test(thread-summary): add API endpoint tests"
+```
+
+---
+
+## Task 11: Frontend Tests
+
+**Files:**
+- Create: `webapp/channels/src/reducers/views/thread_summary.test.ts`
+- Create: `webapp/channels/src/components/thread_summary_panel/thread_summary_panel.test.tsx`
+
+- [ ] **Step 1: Reducer tests**
+
+Test all action types: REQUEST sets loading, SUCCESS stores data, FAILURE stores error, CLEAR resets all.
+
+- [ ] **Step 2: Component tests**
+
+Test ThreadSummaryPanel renders:
+- Loading spinner when `loading: true`
+- Summary text when data is present
+- Error + retry when error is set
+- Expand/collapse toggling
+- Back and close button dispatch correct actions
+
+Follow patterns in `webapp/channels/src/components/rhs_thread/rhs_thread.test.tsx`.
+
+- [ ] **Step 3: DotMenu visibility test**
+
+In `webapp/channels/src/components/dot_menu/dot_menu.test.tsx`, add test that "Summarize Thread" appears only on root posts with `threadReplyCount > 0`.
+
+- [ ] **Step 4: Run tests**
+
+Run: `cd /Users/dmitrybakhtin/WebstormProjects/mattermost/webapp && npx jest --testPathPattern="thread_summary" --no-coverage`
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add webapp/channels/src/reducers/views/thread_summary.test.ts \
+        webapp/channels/src/components/thread_summary_panel/thread_summary_panel.test.tsx \
+        webapp/channels/src/components/dot_menu/dot_menu.test.tsx
+git commit -m "test(thread-summary): add reducer, component, and DotMenu tests"
+```
+
+---
+
+## Task 12: Integration Test — Full Flow
+
+- [ ] **Step 1: Verify dev server running**
+- [ ] **Step 2: Manual browser test** (login → channel → DotMenu → Summarize → panel appears → loading → error/result → expand → collapse → back → thread)
 - [ ] **Step 3: Final commit**
 
 ```bash
 git add -A
-git commit -m "feat(thread-summary): complete thread summarization feature"
+git commit -m "feat(thread-summary): complete thread summarization feature v2"
 ```
