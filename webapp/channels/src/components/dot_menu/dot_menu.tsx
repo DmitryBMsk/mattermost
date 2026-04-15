@@ -7,6 +7,7 @@ import {FormattedMessage, injectIntl} from 'react-intl';
 import type {IntlShape} from 'react-intl';
 
 import {
+    AiSummarizeIcon,
     AlertOutlineIcon,
     ArrowRightBoldOutlineIcon,
     BookmarkIcon,
@@ -369,6 +370,10 @@ export class DotMenuClass extends React.PureComponent<Props, State> {
         );
     };
 
+    handleSummarizeThread = () => {
+        this.props.actions.showThreadSummary(this.props.post.id);
+    };
+
     handleSetThreadFollow = () => {
         const {actions, teamId, threadId, userId, isFollowingThread, isMentionedInRootPost} = this.props;
         let followingThread: boolean;
@@ -692,6 +697,20 @@ export class DotMenuClass extends React.PureComponent<Props, State> {
                             )
                         }
                         onClick={this.handleSetThreadFollow}
+                    />
+                }
+                {this.props.post.root_id === '' && this.props.threadReplyCount > 0 &&
+                    <Menu.Item
+                        id={`summarize_thread_${this.props.post.id}`}
+                        data-testid={`summarize_thread_${this.props.post.id}`}
+                        labels={
+                            <FormattedMessage
+                                id='post_info.summarize_thread'
+                                defaultMessage='Summarize Thread'
+                            />
+                        }
+                        leadingElement={<AiSummarizeIcon size={18}/>}
+                        onClick={this.handleSummarizeThread}
                     />
                 }
                 {showMarkAsUnread &&
