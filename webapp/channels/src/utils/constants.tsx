@@ -330,6 +330,11 @@ export const ActionTypes = keyMirror({
 
     SET_READOUT: 'SET_READOUT',
     CLEAR_READOUT: 'CLEAR_READOUT',
+
+    THREAD_SUMMARY_REQUEST: 'thread_summary_request',
+    THREAD_SUMMARY_SUCCESS: 'thread_summary_success',
+    THREAD_SUMMARY_FAILURE: 'thread_summary_failure',
+    THREAD_SUMMARY_CLEAR: 'thread_summary_clear',
 });
 
 export const PostRequestTypes = keyMirror({
@@ -988,6 +993,7 @@ export const RHSStates = {
     CHANNEL_INFO: 'channel-info',
     CHANNEL_MEMBERS: 'channel-members',
     EDIT_HISTORY: 'edit-history',
+    THREAD_SUMMARY: 'thread-summary',
 };
 
 export const UploadStatuses = {

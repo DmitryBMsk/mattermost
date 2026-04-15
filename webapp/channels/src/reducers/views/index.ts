@@ -26,6 +26,7 @@ import search from './search';
 import settings from './settings';
 import system from './system';
 import textbox from './textbox';
+import threadSummary from './thread_summary';
 import threads from './threads';
 
 export default combineReducers({
@@ -53,4 +54,5 @@ export default combineReducers({
     productMenu,
     drafts,
     readout,
+    threadSummary,
 });
