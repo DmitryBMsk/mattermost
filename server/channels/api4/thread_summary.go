@@ -1,3 +1,6 @@
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
+// See LICENSE.txt for license information.
+
 package api4
 
 import (
@@ -5,9 +8,12 @@ import (
 	"net/http"
 
 	"github.com/mattermost/mattermost/server/public/model"
+	"github.com/mattermost/mattermost/server/public/shared/mlog"
 )
 
 func (api *API) InitThreadSummary() {
+	// Note: relies on the global rate limiter for per-user throttling.
+	// Consider adding per-endpoint rate limiting if AI cost becomes a concern.
 	api.BaseRoutes.Post.Handle("/summary", api.APISessionRequired(postThreadSummary)).Methods(http.MethodPost)
 }
 
@@ -18,14 +24,12 @@ func postThreadSummary(c *Context, w http.ResponseWriter, r *http.Request) {
 	}
 
 	// GetPostIfAuthorized checks channel read permission internally
-	// Signature: (post *model.Post, appErr *model.AppError, isMember bool)
 	post, appErr, _ := c.App.GetPostIfAuthorized(c.AppContext, c.Params.PostId, c.AppContext.Session(), false)
 	if appErr != nil {
 		c.Err = appErr
 		return
 	}
 
-	// Must be a root post
 	if post.RootId != "" {
 		c.Err = model.NewAppError("postThreadSummary", "api.post.summary.not_root_post", nil, "post is a reply, not a root post", http.StatusBadRequest)
 		return
@@ -45,6 +49,6 @@ func postThreadSummary(c *Context, w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(summary); err != nil {
-		c.Logger.Warn("Error writing thread summary response")
+		c.Logger.Warn("Error writing thread summary response", mlog.Err(err))
 	}
 }

@@ -1,3 +1,6 @@
+// Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
+// See LICENSE.txt for license information.
+
 package app
 
 import (
@@ -9,9 +12,34 @@ import (
 	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
+	"github.com/mattermost/mattermost/server/public/shared/mlog"
 	"github.com/mattermost/mattermost/server/public/shared/request"
+	"github.com/mattermost/mattermost/server/v8/channels/store"
 )
 
+const maxThreadPostsForSummary = 200
+
+var threadSummaryJSONSchema = map[string]any{
+	"type": "object",
+	"properties": map[string]any{
+		"summary": map[string]any{"type": "string"},
+		"key_points": map[string]any{
+			"type": "array",
+			"items": map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"text":     map[string]any{"type": "string"},
+					"post_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
+				},
+				"required": []any{"text", "post_ids"},
+			},
+		},
+	},
+	"required": []any{"summary", "key_points"},
+}
+
+// GetThreadSummary generates an AI-powered summary for a thread.
+// The caller must ensure the user has read access to the channel.
 func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID string, channel *model.Channel) (*model.ThreadSummaryResponse, *model.AppError) {
 	// 1. Fetch all thread posts
 	opts := model.GetPostsOptions{}
@@ -30,7 +58,7 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.ai_unavailable", nil, "AI service is not available", http.StatusServiceUnavailable)
 	}
 
-	// 3. Build sorted posts list and format for LLM
+	// 3. Sort posts chronologically and bound to maxThreadPostsForSummary
 	posts := make([]*model.Post, 0, len(postList.Posts))
 	for _, post := range postList.Posts {
 		posts = append(posts, post)
@@ -38,16 +66,36 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 	sort.Slice(posts, func(i, j int) bool {
 		return posts[i].CreateAt < posts[j].CreateAt
 	})
+	if len(posts) > maxThreadPostsForSummary {
+		posts = posts[len(posts)-maxThreadPostsForSummary:]
+	}
 
+	// 4. Batch-fetch unique users to avoid N+1 queries
+	userIDSet := make(map[string]bool, len(posts))
+	for _, post := range posts {
+		userIDSet[post.UserId] = true
+	}
+	userIDs := make([]string, 0, len(userIDSet))
+	for uid := range userIDSet {
+		userIDs = append(userIDs, uid)
+	}
+	users, usersErr := a.GetUsersByIds(rctx, userIDs, &store.UserGetByIdsOpts{})
+	usernameMap := make(map[string]string, len(userIDs))
+	if usersErr == nil {
+		for _, u := range users {
+			usernameMap[u.Id] = u.Username
+		}
+	}
+
+	// 5. Format posts for LLM prompt
 	participantSet := make(map[string]bool)
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("Thread in #%s (%d messages)\n\n", channel.DisplayName, len(posts)))
 
 	for _, post := range posts {
-		user, userErr := a.GetUser(post.UserId)
-		username := "unknown"
-		if userErr == nil {
-			username = user.Username
+		username := usernameMap[post.UserId]
+		if username == "" {
+			username = "unknown"
 		}
 		participantSet[username] = true
 
@@ -61,28 +109,9 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 	}
 	sort.Strings(participants)
 
-	// 4. Build BridgeCompletionRequest (same pattern as summarization.go)
+	// 6. Build BridgeCompletionRequest
 	systemPrompt := "You are a thread summarizer. Given a thread of messages, produce a structured JSON summary. Each message is prefixed with [post_id:XXX]. In your key_points, include the post_id values for referenced messages in the post_ids array."
 	userPrompt := fmt.Sprintf("Summarize this thread. Provide:\n1. A short summary (2-3 sentences) capturing the main topic and outcome.\n2. Key points as bullet items, each mentioning the participant (@username) and their contribution.\n\nFor each key point, include the post_ids of the messages you reference.\n\nThread:\n%s", sb.String())
-
-	jsonSchema := map[string]any{
-		"type": "object",
-		"properties": map[string]any{
-			"summary": map[string]any{"type": "string"},
-			"key_points": map[string]any{
-				"type": "array",
-				"items": map[string]any{
-					"type": "object",
-					"properties": map[string]any{
-						"text":     map[string]any{"type": "string"},
-						"post_ids": map[string]any{"type": "array", "items": map[string]any{"type": "string"}},
-					},
-					"required": []any{"text", "post_ids"},
-				},
-			},
-		},
-		"required": []any{"summary", "key_points"},
-	}
 
 	req := BridgeCompletionRequest{
 		Operation:        BridgeOperationRecapSummary,
@@ -92,12 +121,12 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 			{Role: "system", Message: systemPrompt},
 			{Role: "user", Message: userPrompt},
 		},
-		JSONOutputFormat: jsonSchema,
+		JSONOutputFormat: threadSummaryJSONSchema,
 		UserID:           userID,
 		ChannelID:        channel.Id,
 	}
 
-	// Get the default agent (or first available) for completion
+	// 7. Get the default agent (or first available) for completion
 	agents, agentsErr := a.ch.agentsBridge.GetAgents(userID, userID)
 	if agentsErr != nil || len(agents) == 0 {
 		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.no_agents", nil, "no AI agents available", http.StatusServiceUnavailable)
@@ -112,12 +141,14 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 
 	llmResponse, llmErr := a.ch.agentsBridge.AgentCompletion(userID, agentID, req)
 	if llmErr != nil {
-		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.llm_error", nil, llmErr.Error(), http.StatusInternalServerError)
+		rctx.Logger().Error("LLM completion failed for thread summary", mlog.String("post_id", rootPostID), mlog.Err(llmErr))
+		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.llm_error", nil, "AI completion request failed", http.StatusInternalServerError)
 	}
 
-	// 5. Parse LLM response
+	// 8. Parse LLM response
 	var parsed model.ThreadSummaryLLMResponse
 	if jsonErr := json.Unmarshal([]byte(llmResponse), &parsed); jsonErr != nil {
+		rctx.Logger().Warn("Failed to parse LLM summary JSON, returning raw text", mlog.String("post_id", rootPostID), mlog.Err(jsonErr))
 		return &model.ThreadSummaryResponse{
 			Summary:         llmResponse,
 			KeyPoints:       []model.ThreadKeyPoint{},
@@ -127,7 +158,7 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 		}, nil
 	}
 
-	// 6. Validate post IDs — only keep IDs that exist in this thread
+	// 9. Validate post IDs — only keep IDs that exist in this thread
 	validIDs := make(map[string]bool, len(posts))
 	for _, post := range posts {
 		validIDs[post.Id] = true
