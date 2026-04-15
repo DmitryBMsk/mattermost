@@ -14,15 +14,13 @@ import (
 
 func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID string, channel *model.Channel) (*model.ThreadSummaryResponse, *model.AppError) {
 	// 1. Fetch all thread posts
-	opts := model.GetPostsOptions{
-		SkipFetchThreads: true,
-	}
+	opts := model.GetPostsOptions{}
 	postList, appErr := a.GetPostThread(rctx, rootPostID, opts, userID)
 	if appErr != nil {
 		return nil, appErr
 	}
 
-	if len(postList.Order) <= 1 {
+	if len(postList.Posts) <= 1 {
 		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.no_replies", nil, "thread has no replies", http.StatusBadRequest)
 	}
 
