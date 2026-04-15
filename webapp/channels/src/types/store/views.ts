@@ -8,6 +8,8 @@ import type {Team} from '@mattermost/types/teams';
 import type {UserThread} from '@mattermost/types/threads';
 import type {RelationOneToOne} from '@mattermost/types/utilities';
 
+import type {ThreadSummaryData} from 'reducers/views/thread_summary';
+
 import type {I18nState} from './i18n';
 import type {LhsViewState} from './lhs';
 import type {RhsViewState} from './rhs';
@@ -214,6 +216,13 @@ export type ViewsState = {
         lastUpdateAt: {[id: string]: number};
         manuallyUnread: {[id: string]: boolean};
         toastStatus: boolean;
+    };
+
+    threadSummary: {
+        loading: boolean;
+        postId: string | null;
+        data: ThreadSummaryData | null;
+        error: string | null;
     };
 
     textbox: {

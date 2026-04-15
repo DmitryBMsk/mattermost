@@ -144,7 +144,7 @@ const ThreadSummaryPanel: React.FC = () => {
 
                                 {detailsExpanded && (
                                     <ul className='ThreadSummaryPanel__key-points'>
-                                        {data.key_points.map((point, idx) => (
+                                        {data.key_points.map((point: {text: string; post_ids: string[]}, idx: number) => (
                                             <li key={idx}>{point.text}</li>
                                         ))}
                                     </ul>

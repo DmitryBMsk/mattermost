@@ -164,6 +164,8 @@ type Props = {
          */
         savePreferences: (userId: string, preferences: Array<{category: string; user_id: string; name: string; value: string}>) => void;
 
+        showThreadSummary: (postId: string) => void;
+
     }; // TechDebt: Made non-mandatory while converting to typescript
 
     canEdit: boolean;
@@ -699,7 +701,7 @@ export class DotMenuClass extends React.PureComponent<Props, State> {
                         onClick={this.handleSetThreadFollow}
                     />
                 }
-                {this.props.post.root_id === '' && this.props.threadReplyCount > 0 &&
+                {this.props.post.root_id === '' && (this.props.threadReplyCount ?? 0) > 0 &&
                     <Menu.Item
                         id={`summarize_thread_${this.props.post.id}`}
                         data-testid={`summarize_thread_${this.props.post.id}`}
