@@ -97,12 +97,18 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 		ChannelID:        channel.Id,
 	}
 
-	// Get the first available agent to use for completion
+	// Get the default agent (or first available) for completion
 	agents, agentsErr := a.ch.agentsBridge.GetAgents(userID, userID)
 	if agentsErr != nil || len(agents) == 0 {
 		return nil, model.NewAppError("GetThreadSummary", "app.thread_summary.no_agents", nil, "no AI agents available", http.StatusServiceUnavailable)
 	}
 	agentID := agents[0].ID
+	for _, agent := range agents {
+		if agent.IsDefault {
+			agentID = agent.ID
+			break
+		}
+	}
 
 	llmResponse, llmErr := a.ch.agentsBridge.AgentCompletion(userID, agentID, req)
 	if llmErr != nil {

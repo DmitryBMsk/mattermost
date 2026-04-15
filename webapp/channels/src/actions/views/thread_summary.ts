@@ -15,8 +15,8 @@ let previousThreadPostId: string | null = null;
 
 export function showThreadSummary(postId: string) {
     return (dispatch: DispatchFunc, getState: GetStateFunc) => {
-        // Remember the currently open thread so Back can restore it
-        previousThreadPostId = getSelectedPostId(getState()) || postId;
+        // Always back to the thread being summarized, not a different RHS thread
+        previousThreadPostId = postId;
 
         dispatch({
             type: ActionTypes.UPDATE_RHS_STATE,
