@@ -2,25 +2,56 @@
 // See LICENSE.txt for license information.
 
 import {Client4} from 'mattermost-redux/client';
+import {getPost} from 'mattermost-redux/selectors/entities/posts';
 
-import {getRhsState} from 'selectors/rhs';
+import {getSelectedPostId} from 'selectors/rhs';
 
 import {ActionTypes, RHSStates} from 'utils/constants';
 
 import type {DispatchFunc, GetStateFunc} from 'types/store';
 
+// postId of the thread we came from, so Back can restore it
+let previousThreadPostId: string | null = null;
+
 export function showThreadSummary(postId: string) {
     return (dispatch: DispatchFunc, getState: GetStateFunc) => {
-        const previousRhsState = getRhsState(getState());
+        // Remember the currently open thread so Back can restore it
+        previousThreadPostId = getSelectedPostId(getState()) || postId;
 
         dispatch({
             type: ActionTypes.UPDATE_RHS_STATE,
             state: RHSStates.THREAD_SUMMARY,
-            previousRhsState,
         });
 
         dispatch(fetchThreadSummary(postId));
 
+        return {data: true};
+    };
+}
+
+export function backToThreadFromSummary() {
+    return (dispatch: DispatchFunc, getState: GetStateFunc) => {
+        const postId = previousThreadPostId;
+        previousThreadPostId = null;
+
+        if (postId) {
+            const post = getPost(getState(), postId);
+            if (post) {
+                dispatch({
+                    type: ActionTypes.SELECT_POST,
+                    postId: post.root_id || post.id,
+                    channelId: post.channel_id,
+                    timestamp: Date.now(),
+                });
+                return {data: true};
+            }
+        }
+
+        // Fallback: close RHS
+        dispatch({
+            type: ActionTypes.UPDATE_RHS_STATE,
+            state: null,
+        });
         return {data: true};
     };
 }

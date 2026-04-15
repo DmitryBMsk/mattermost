@@ -13,8 +13,8 @@ import {
     ChevronDownIcon,
 } from '@mattermost/compass-icons/components';
 
-import {closeRightHandSide, goBack} from 'actions/views/rhs';
-import {fetchThreadSummary} from 'actions/views/thread_summary';
+import {closeRightHandSide} from 'actions/views/rhs';
+import {backToThreadFromSummary, fetchThreadSummary} from 'actions/views/thread_summary';
 import {
     getThreadSummaryLoading,
     getThreadSummaryData,
@@ -33,7 +33,7 @@ const ThreadSummaryPanel: React.FC = () => {
     const [detailsExpanded, setDetailsExpanded] = useState(false);
 
     const handleBack = useCallback(() => {
-        dispatch(goBack());
+        dispatch(backToThreadFromSummary());
     }, [dispatch]);
 
     const handleClose = useCallback(() => {
