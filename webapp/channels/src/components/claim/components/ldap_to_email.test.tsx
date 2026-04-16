@@ -53,7 +53,7 @@ describe('components/claim/components/ldap_to_email.jsx', () => {
         const switchLdapToEmail = jest.fn().
             mockResolvedValueOnce({error: {server_error_id: 'some.generic.error', message: 'Error'}}).
             mockResolvedValueOnce({error: {server_error_id: ClaimErrors.MFA_VALIDATE_TOKEN_AUTHENTICATE, message: 'MFA required'}}).
-            mockResolvedValueOnce({data: {follow_link: '/login'}});
+            mockResolvedValueOnce({data: {follow_link: ''}});
 
         const props = {
             ...requiredProps,

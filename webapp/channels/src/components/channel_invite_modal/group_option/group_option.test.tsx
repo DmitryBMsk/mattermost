@@ -31,12 +31,12 @@ describe('GroupOption', () => {
     };
 
     test('should match snapshot', async () => {
-        const wrapper = await renderWithContext(
+        const {container} = await renderWithContext(
             <GroupOption
                 {...props}
             />,
         );
-        expect(wrapper).toMatchSnapshot();
+        expect(container).toMatchSnapshot();
     });
 
     it('should cleanup keydown event listener on unmount', async () => {

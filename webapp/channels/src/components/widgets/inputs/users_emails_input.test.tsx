@@ -50,7 +50,7 @@ describe('components/widgets/inputs/UsersEmailsInput', () => {
 
         it('should treat comma as a delimiter when typing', async () => {
             const ref = React.createRef<UsersEmailsInput>();
-            await renderWithContext(
+            const {flushEffects} = await renderWithContext(
                 <UsersEmailsInput
                     {...baseProps}
                     ref={ref}
@@ -62,13 +62,10 @@ describe('components/widgets/inputs/UsersEmailsInput', () => {
                 prevInputValue: 'user@example.com,',
             };
 
+            // handleInputChange + flush in a single act() so AsyncCreatable state updates settle
             await act(async () => {
                 await ref.current!.handleInputChange('', action);
-
-                // Flush microtasks so AsyncCreatable's internal state updates settle
-                for (let i = 0; i < 10; i++) {
-                    await Promise.resolve(); // eslint-disable-line no-await-in-loop
-                }
+                await flushEffects();
             });
 
             expect(baseProps.onChange).toHaveBeenCalled();
@@ -76,7 +73,7 @@ describe('components/widgets/inputs/UsersEmailsInput', () => {
 
         it('should treat semicolon as a delimiter when typing', async () => {
             const ref = React.createRef<UsersEmailsInput>();
-            await renderWithContext(
+            const {flushEffects} = await renderWithContext(
                 <UsersEmailsInput
                     {...baseProps}
                     ref={ref}
@@ -88,13 +85,10 @@ describe('components/widgets/inputs/UsersEmailsInput', () => {
                 prevInputValue: 'user@example.com;',
             };
 
+            // handleInputChange + flush in a single act() so AsyncCreatable state updates settle
             await act(async () => {
                 await ref.current!.handleInputChange('', action);
-
-                // Flush microtasks so AsyncCreatable's internal state updates settle
-                for (let i = 0; i < 10; i++) {
-                    await Promise.resolve(); // eslint-disable-line no-await-in-loop
-                }
+                await flushEffects();
             });
 
             expect(baseProps.onChange).toHaveBeenCalled();

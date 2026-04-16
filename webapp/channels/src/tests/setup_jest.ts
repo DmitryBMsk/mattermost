@@ -64,12 +64,12 @@ window.getComputedStyle = (elt: Element, pseudoElt?: string | null) => {
 
 // isDependencyWarning returns true when the given console.warn message is coming from a dependency using deprecated
 // React lifecycle methods.
-function isDependencyWarning(params: string[]) {
+function isDependencyWarning(params: any[]) {
     function paramsHasComponent(name: string) {
-        return params.some((param) => param.includes(name));
+        return params.some((param) => String(param).includes(name));
     }
 
-    return params[0].includes('Please update the following components:') && (
+    return String(params[0]).includes('Please update the following components:') && (
 
         // React Bootstrap
         paramsHasComponent('Modal') ||
@@ -81,18 +81,28 @@ function isDependencyWarning(params: string[]) {
     );
 }
 
-let warnSpy: jest.SpyInstance<void, Parameters<typeof console.warn>>;
-let errorSpy: jest.SpyInstance<void, Parameters<typeof console.error>>;
-beforeAll(() => {
-    warnSpy = jest.spyOn(console, 'warn');
-    errorSpy = jest.spyOn(console, 'error');
-});
+// Collect console.warn and console.error calls so that unhandled act() warnings
+// fail the test. act() warnings indicate state updates outside the React lifecycle
+// boundary, which can cause flaky tests and mask real rendering bugs.
+let capturedWarns: any[][] = [];
+let capturedErrors: any[][] = [];
+const originalWarn = console.warn;
+const originalError = console.error;
+
+console.warn = (...args: any[]) => {
+    capturedWarns.push(args);
+    originalWarn.apply(console, args);
+};
+console.error = (...args: any[]) => {
+    capturedErrors.push(args);
+    originalError.apply(console, args);
+};
 
 afterEach(() => {
     const warns = [];
     const errors = [];
 
-    for (const call of warnSpy.mock.calls) {
+    for (const call of capturedWarns) {
         if (isDependencyWarning(call)) {
             continue;
         }
@@ -100,18 +110,15 @@ afterEach(() => {
         warns.push(call);
     }
 
-    for (const call of errorSpy.mock.calls) {
-        // jsdom doesn't implement navigation, but this is expected behavior in tests
-        const errorStr = call[0] instanceof Error ? call[0].message : String(call[0]);
-        if (errorStr.includes('Not implemented:')) {
-            continue;
-        }
-
+    for (const call of capturedErrors) {
         errors.push(call);
     }
 
+    capturedWarns = [];
+    capturedErrors = [];
+
     if (warns.length > 0 || errors.length > 0) {
-        function formatCall(call: string[]) {
+        function formatCall(call: any[]) {
             const args = [...call];
             const format = args.shift();
 
@@ -129,25 +136,30 @@ afterEach(() => {
         for (const call of errors) {
             message += `\n\t- (error) ${formatCall(call)}`;
             const msg = String(call[0]);
-            if (msg.includes('inside a test was not wrapped in act')) {
+            if (msg.includes('inside a test was not wrapped in act') ||
+                msg.includes('is not configured to support act')) {
                 hasActWarning = true;
             }
         }
 
+        // Do NOT suppress act() warnings. They indicate real issues where React state
+        // updates are happening outside the testing lifecycle boundary. Each warning
+        // should be addressed and resolved in the test that triggers it — typically by
+        // wrapping interactions in act() or awaiting async updates properly.
         if (hasActWarning) {
             message += '\n\n' +
                 'To fix the act() warning, try one of the following:\n' +
                 '  - Add `await` to `renderWithContext()` or `renderHookWithContext()` calls\n' +
                 '  - Wrap state-triggering code in `await act(async () => { ... })`\n' +
+                '  - For post-render state changes that trigger async effects, use `flushEffects` from the render result:\n' +
+                '      const {flushEffects} = await renderWithContext(...);\n' +
+                '      await act(async () => { setState(...); await flushEffects(); });\n' +
                 '  - Use `await waitFor(() => ...)` to wait for async state updates\n' +
                 '  - For loading-state tests, use a never-resolving promise to prevent async state updates from leaking';
         }
 
         throw new Error(message);
     }
-
-    warnSpy.mockReset();
-    errorSpy.mockReset();
 });
 
 expect.extend({

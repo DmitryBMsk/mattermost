@@ -18,7 +18,7 @@ describe('TeamUrlStep', () => {
         teamURLInput: React.createRef<HTMLInputElement>(),
         onTeamURLChange: jest.fn(),
         onFocus: jest.fn(),
-        onSubmit: jest.fn(),
+        onSubmit: jest.fn((e) => e.preventDefault()),
         onBack: jest.fn(),
         buttonText: <>{'Finish'}</>,
     };

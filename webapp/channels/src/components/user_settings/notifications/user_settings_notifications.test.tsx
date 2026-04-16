@@ -32,31 +32,31 @@ describe('components/user_settings/display/UserSettingsDisplay', () => {
     };
 
     test('should match snapshot', async () => {
-        const wrapper = await renderWithContext(
+        const {container} = await renderWithContext(
             <UserSettingsNotifications {...defaultProps}/>,
         );
 
-        expect(wrapper).toMatchSnapshot();
+        expect(container).toMatchSnapshot();
     });
 
     test('should match snapshot when its a starter free', async () => {
         const props = {...defaultProps, isEnterpriseOrCloudOrSKUStarterFree: true};
 
-        const wrapper = await renderWithContext(
+        const {container} = await renderWithContext(
             <UserSettingsNotifications {...props}/>,
         );
 
-        expect(wrapper).toMatchSnapshot();
+        expect(container).toMatchSnapshot();
     });
 
     test('should match snapshot when its team edition', async () => {
         const props = {...defaultProps, isEnterpriseReady: false};
 
-        const wrapper = await renderWithContext(
+        const {container} = await renderWithContext(
             <UserSettingsNotifications {...props}/>,
         );
 
-        expect(wrapper).toMatchSnapshot();
+        expect(container).toMatchSnapshot();
     });
 
     test('should show reply notifications section when CRT off', async () => {

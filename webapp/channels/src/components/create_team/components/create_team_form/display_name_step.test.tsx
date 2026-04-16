@@ -15,7 +15,7 @@ describe('DisplayNameStep', () => {
         teamDisplayName: 'My Team',
         isValidTeamName: true,
         onDisplayNameChange: jest.fn(),
-        onSubmit: jest.fn(),
+        onSubmit: jest.fn((e) => e.preventDefault()),
         buttonText: <>{'Next'}<i className='icon icon-chevron-right'/></>,
         isLoading: false,
         nameError: '',

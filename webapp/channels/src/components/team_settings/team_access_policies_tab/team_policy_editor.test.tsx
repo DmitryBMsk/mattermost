@@ -50,7 +50,7 @@ describe('TeamPolicyEditor', () => {
     });
 
     test('should show back button with create title for new policy', async () => {
-        renderWithContext(<TeamPolicyEditor {...defaultProps}/>);
+        await renderWithContext(<TeamPolicyEditor {...defaultProps}/>);
 
         await waitFor(() => {
             expect(screen.getByText('Add membership policy')).toBeInTheDocument();
@@ -63,7 +63,7 @@ describe('TeamPolicyEditor', () => {
         });
         const searchChannels = jest.fn().mockResolvedValue({data: {total_count: 1}});
 
-        renderWithContext(
+        await renderWithContext(
             <TeamPolicyEditor
                 {...defaultProps}
                 policyId='p1'
@@ -78,7 +78,7 @@ describe('TeamPolicyEditor', () => {
 
     test('should call onNavigateBack without message when back button clicked', async () => {
         const onNavigateBack = jest.fn();
-        renderWithContext(
+        await renderWithContext(
             <TeamPolicyEditor
                 {...defaultProps}
                 onNavigateBack={onNavigateBack}
@@ -95,7 +95,7 @@ describe('TeamPolicyEditor', () => {
     });
 
     test('should render name input', async () => {
-        renderWithContext(<TeamPolicyEditor {...defaultProps}/>);
+        await renderWithContext(<TeamPolicyEditor {...defaultProps}/>);
 
         await waitFor(() => {
             const nameInput = document.getElementById('input_policyName');
@@ -104,7 +104,7 @@ describe('TeamPolicyEditor', () => {
     });
 
     test('should not show delete section for new policy', async () => {
-        renderWithContext(<TeamPolicyEditor {...defaultProps}/>);
+        await renderWithContext(<TeamPolicyEditor {...defaultProps}/>);
         await waitFor(() => {
             expect(screen.getByText('Access rules')).toBeInTheDocument();
         });
@@ -116,7 +116,7 @@ describe('TeamPolicyEditor', () => {
             data: {id: 'p1', name: 'Existing', rules: [{expression: 'true', actions: ['*']}]},
         });
         const searchChannels = jest.fn().mockResolvedValue({data: {total_count: 1}});
-        renderWithContext(
+        await renderWithContext(
             <TeamPolicyEditor
                 {...defaultProps}
                 policyId='p1'

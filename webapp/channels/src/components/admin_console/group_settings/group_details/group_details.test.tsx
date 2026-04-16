@@ -80,19 +80,17 @@ describe('components/admin_console/group_settings/group_details/GroupDetails', (
 
     test('should match snapshot, with add team selector open', async () => {
         const ref = React.createRef<InstanceType<typeof GroupDetails>>();
-        const {container} = await renderWithContext(
+        const {container, flushEffects} = await renderWithContext(
             <GroupDetails
                 {...defaultProps}
                 ref={ref}
             />,
         );
+
+        // setState + flush in a single act() boundary so the modal mount effects settle
         await act(async () => {
             ref.current!.setState({addTeamOpen: true});
-
-            // Flush microtasks so TeamSelectorModal's async effects settle inside act()
-            for (let i = 0; i < 10; i++) {
-                await Promise.resolve(); // eslint-disable-line no-await-in-loop
-            }
+            await flushEffects();
         });
         defaultProps.actions.getGroupSyncables.mockClear();
         expect(container).toMatchSnapshot();
@@ -100,19 +98,17 @@ describe('components/admin_console/group_settings/group_details/GroupDetails', (
 
     test('should match snapshot, with add channel selector open', async () => {
         const ref = React.createRef<InstanceType<typeof GroupDetails>>();
-        const {container} = await renderWithContext(
+        const {container, flushEffects} = await renderWithContext(
             <GroupDetails
                 {...defaultProps}
                 ref={ref}
             />,
         );
+
+        // setState + flush in a single act() boundary so the modal mount effects settle
         await act(async () => {
             ref.current!.setState({addChannelOpen: true});
-
-            // Flush microtasks so ChannelSelectorModal's async effects settle inside act()
-            for (let i = 0; i < 10; i++) {
-                await Promise.resolve(); // eslint-disable-line no-await-in-loop
-            }
+            await flushEffects();
         });
         defaultProps.actions.getGroupSyncables.mockClear();
         expect(container).toMatchSnapshot();

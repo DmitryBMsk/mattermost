@@ -65,7 +65,7 @@ describe('components/start_trial_form_modal/start_trial_form_modal', () => {
     };
 
     test('should match snapshot', async () => {
-        const wrapper = await renderWithContext(
+        const {baseElement} = await renderWithContext(
             <BrowserRouter>
                 <StartTrialFormModal {...props}/>
             </BrowserRouter>,
@@ -74,7 +74,7 @@ describe('components/start_trial_form_modal/start_trial_form_modal', () => {
 
         await act(() => {});
 
-        expect(wrapper).toMatchSnapshot();
+        expect(baseElement).toMatchSnapshot();
     });
 
     test('should pre-fill email', async () => {

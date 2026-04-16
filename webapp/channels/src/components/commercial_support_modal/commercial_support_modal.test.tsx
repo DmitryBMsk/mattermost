@@ -35,6 +35,10 @@ describe('components/CommercialSupportModal', () => {
 
         // Mock createObjectURL
         window.URL.createObjectURL = jest.fn().mockReturnValue('mock-url');
+
+        // Prevent jsdom "Not implemented: navigation" when the component clicks a
+        // dynamically created <a> element to trigger a file download.
+        jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
     });
 
     afterAll(() => {

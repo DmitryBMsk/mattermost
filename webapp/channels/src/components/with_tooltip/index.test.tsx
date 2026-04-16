@@ -1,6 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
+import {act} from '@testing-library/react';
 import React from 'react';
 
 import {renderWithContext, screen, userEvent, waitFor} from 'tests/react_testing_utils';
@@ -12,6 +13,10 @@ jest.mock('utils/user_agent', () => ({
 }));
 
 describe('WithTooltip', () => {
+    afterEach(() => {
+        jest.useRealTimers();
+    });
+
     test('renders children correctly', async () => {
         await renderWithContext(
             <WithTooltip title='TooltipOfButton'>
@@ -50,7 +55,9 @@ describe('WithTooltip', () => {
         const trigger = screen.getByText('Hover Me');
 
         // Clicking the button will simulate a focus event
-        await userEvent.click(trigger, {advanceTimers: jest.advanceTimersByTime});
+        await act(async () => {
+            await userEvent.click(trigger, {advanceTimers: jest.advanceTimersByTime});
+        });
 
         await waitFor(() => {
             expect(trigger).toHaveFocus();

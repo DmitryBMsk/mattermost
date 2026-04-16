@@ -85,7 +85,9 @@ export const renderWithContext = async (
     });
 
     if (resolvedOptions?.flushEffects !== false) {
-        await flushEffects();
+        await act(async () => {
+            await flushEffects();
+        });
     }
 
     return {
@@ -115,6 +117,7 @@ export const renderWithContext = async (
             results.rerender(renderState.component);
         },
         store: testStore,
+        flushEffects,
     };
 };
 
@@ -151,7 +154,9 @@ export const renderHookWithContext = async <TProps, TResult>(
     });
 
     if (resolvedOptions?.flushEffects !== false) {
-        await flushEffects();
+        await act(async () => {
+            await flushEffects();
+        });
     }
 
     return {
@@ -165,6 +170,7 @@ export const renderHookWithContext = async <TProps, TResult>(
 
             results.rerender();
         },
+        flushEffects,
     };
 };
 
@@ -225,15 +231,17 @@ const Providers = ({children, store, history, options}: RenderStateProps) => {
 };
 
 /**
- * Flushes pending microtasks inside an `act` boundary so that state updates from mount effects
- * (e.g. promise chains in useEffect) commit without triggering act() warnings.
+ * Advances the microtask queue by multiple ticks so that pending promise chains
+ * (e.g. async effects, thunks) settle. Does NOT wrap in act() — callers should
+ * wrap this in their own act() boundary.
  *
  * Each `await Promise.resolve()` advances the microtask queue by one tick. 10 rounds is chosen
  * because the deepest observed async chain in mount effects was 3 sequential awaits (e.g. effect
  * dispatches a thunk that awaits an API call that triggers setState). 10 provides ~3x headroom
  * over the worst case while adding negligible cost (~10 microseconds total).
  *
- * Called automatically by `renderWithContext` and `renderHookWithContext`.
+ * Called automatically by `renderWithContext` and `renderHookWithContext` on initial mount.
+ * Also returned from those functions for tests that need to flush after post-render state changes.
  *
  * **Trade-off**: Because effects resolve before the render result is returned, intermediate states
  * (loading spinners, skeleton screens) are no longer observable. To test intermediate states,
@@ -249,12 +257,17 @@ const Providers = ({children, store, history, options}: RenderStateProps) => {
  * // Option 2: Skip flushing effects
  * const {result} = await renderHookWithContext(() => useMyHook(), {flushEffects: false});
  * expect(result.current.loading).toBe(true);
+ *
+ * // Option 3: Flush after a post-render state change inside act()
+ * const {container, flushEffects} = await renderWithContext(<MyComponent />);
+ * await act(async () => {
+ *     ref.current!.setState({modalOpen: true});
+ *     await flushEffects();
+ * });
  * ```
  */
-function flushEffects() {
-    return act(async () => {
-        for (let i = 0; i < 10; i++) {
-            await Promise.resolve(); // eslint-disable-line no-await-in-loop
-        }
-    });
+async function flushEffects() {
+    for (let i = 0; i < 10; i++) {
+        await Promise.resolve(); // eslint-disable-line no-await-in-loop
+    }
 }
