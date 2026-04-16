@@ -35,12 +35,16 @@ export function backToThreadFromSummary() {
     return (dispatch: DispatchFunc, getState: GetStateFunc) => {
         const postId = getThreadSummaryPreviousPostId(getState());
 
+        // Capture the previous RHS state BEFORE clearing, so the thread
+        // header retains its original Back target (search/saved/pinned)
+        const previousRhsState = getPreviousRhsState(getState());
+
         dispatch(clearThreadSummary());
 
         if (postId) {
             const post = getPost(getState(), postId);
             if (post) {
-                dispatch(selectPost(post));
+                dispatch(selectPost(post, previousRhsState));
                 return {data: true};
             }
         }
