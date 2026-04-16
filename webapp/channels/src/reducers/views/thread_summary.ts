@@ -64,4 +64,15 @@ function error(state: string | null = null, action: {type: string; error?: strin
     }
 }
 
-export default combineReducers({loading, postId, data, error});
+function previousPostId(state: string | null = null, action: {type: string; previousPostId?: string}) {
+    switch (action.type) {
+    case ActionTypes.THREAD_SUMMARY_REQUEST:
+        return action.previousPostId ?? null;
+    case ActionTypes.THREAD_SUMMARY_CLEAR:
+        return null;
+    default:
+        return state;
+    }
+}
+
+export default combineReducers({loading, postId, data, error, previousPostId});

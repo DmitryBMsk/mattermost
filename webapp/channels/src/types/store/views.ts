@@ -223,6 +223,7 @@ export type ViewsState = {
         postId: string | null;
         data: ThreadSummaryData | null;
         error: string | null;
+        previousPostId: string | null;
     };
 
     textbox: {

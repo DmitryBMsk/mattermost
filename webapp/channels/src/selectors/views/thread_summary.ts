@@ -18,3 +18,7 @@ export function getThreadSummaryError(state: GlobalState): string | null {
 export function getThreadSummaryPostId(state: GlobalState): string | null {
     return state.views.threadSummary?.postId ?? null;
 }
+
+export function getThreadSummaryPreviousPostId(state: GlobalState): string | null {
+    return state.views.threadSummary?.previousPostId ?? null;
+}

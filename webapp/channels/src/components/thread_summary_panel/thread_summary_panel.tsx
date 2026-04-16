@@ -1,7 +1,7 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import React, {memo, useCallback, useState} from 'react';
+import React, {memo, useCallback, useMemo, useState} from 'react';
 import {FormattedMessage} from 'react-intl';
 import {useDispatch, useSelector} from 'react-redux';
 
@@ -15,6 +15,7 @@ import {
 
 import {closeRightHandSide} from 'actions/views/rhs';
 import {backToThreadFromSummary, fetchThreadSummary} from 'actions/views/thread_summary';
+import type {ThreadSummaryData} from 'reducers/views/thread_summary';
 import {
     getThreadSummaryLoading,
     getThreadSummaryData,
@@ -30,11 +31,10 @@ function renderTextWithMentions(text: string): React.ReactNode {
     const parts = text.split(/(@\w[\w.-]*)/g);
     return parts.map((part, i) => {
         if (part.startsWith('@')) {
-            const username = part.slice(1);
             return (
                 <AtMention
                     key={i}
-                    mentionName={username}
+                    mentionName={part.slice(1)}
                     fetchMissingUsers={true}
                 />
             );
@@ -42,6 +42,12 @@ function renderTextWithMentions(text: string): React.ReactNode {
         return part;
     });
 }
+
+const MentionText = memo(({text}: {text: string}) => {
+    const rendered = useMemo(() => renderTextWithMentions(text), [text]);
+    return <>{rendered}</>;
+});
+MentionText.displayName = 'MentionText';
 
 const ThreadSummaryPanel: React.FC = () => {
     const dispatch = useDispatch();
@@ -72,14 +78,12 @@ const ThreadSummaryPanel: React.FC = () => {
     return (
         <div className='ThreadSummaryPanel'>
             <div className='ThreadSummaryPanel__header'>
-                <span
-                    className='back-button'
+                <button
+                    className='style--none back-button'
                     onClick={handleBack}
-                    role='button'
-                    tabIndex={0}
                 >
                     <ArrowLeftIcon size={20}/>
-                </span>
+                </button>
                 <span className='title'>
                     <AiSummarizeIcon size={20}/>
                     <FormattedMessage
@@ -87,14 +91,12 @@ const ThreadSummaryPanel: React.FC = () => {
                         defaultMessage='AI Summary'
                     />
                 </span>
-                <span
-                    className='close-button'
+                <button
+                    className='style--none close-button'
                     onClick={handleClose}
-                    role='button'
-                    tabIndex={0}
                 >
                     <CloseIcon size={20}/>
-                </span>
+                </button>
             </div>
 
             <div className='ThreadSummaryPanel__content'>
@@ -111,17 +113,15 @@ const ThreadSummaryPanel: React.FC = () => {
                 {error && !loading && (
                     <div className='ThreadSummaryPanel__error'>
                         <p>{error}</p>
-                        <span
-                            className='retry-button'
+                        <button
+                            className='style--none retry-button'
                             onClick={handleRetry}
-                            role='button'
-                            tabIndex={0}
                         >
                             <FormattedMessage
                                 id='thread_summary.retry'
                                 defaultMessage='Try again'
                             />
-                        </span>
+                        </button>
                     </div>
                 )}
 
@@ -139,16 +139,14 @@ const ThreadSummaryPanel: React.FC = () => {
                         </div>
 
                         <div className='ThreadSummaryPanel__summary'>
-                            {renderTextWithMentions(data.summary)}
+                            <MentionText text={data.summary}/>
                         </div>
 
                         {data.key_points.length > 0 && (
                             <>
-                                <div
-                                    className='ThreadSummaryPanel__details-toggle'
+                                <button
+                                    className='style--none ThreadSummaryPanel__details-toggle'
                                     onClick={toggleDetails}
-                                    role='button'
-                                    tabIndex={0}
                                 >
                                     {detailsExpanded ? (
                                         <ChevronDownIcon size={16}/>
@@ -166,12 +164,12 @@ const ThreadSummaryPanel: React.FC = () => {
                                             defaultMessage='More detail'
                                         />
                                     )}
-                                </div>
+                                </button>
 
                                 {detailsExpanded && (
                                     <ul className='ThreadSummaryPanel__key-points'>
-                                        {data.key_points.map((point: {text: string; post_ids: string[]}, idx: number) => (
-                                            <li key={idx}>{renderTextWithMentions(point.text)}</li>
+                                        {data.key_points.map((point: ThreadSummaryData['key_points'][number], idx: number) => (
+                                            <li key={idx}><MentionText text={point.text}/></li>
                                         ))}
                                     </ul>
                                 )}

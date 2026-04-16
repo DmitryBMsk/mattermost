@@ -4,20 +4,15 @@
 import {Client4} from 'mattermost-redux/client';
 import {getPost} from 'mattermost-redux/selectors/entities/posts';
 
-import {getSelectedPostId} from 'selectors/rhs';
+import {selectPost} from 'actions/views/rhs';
+import {getThreadSummaryPreviousPostId} from 'selectors/views/thread_summary';
 
 import {ActionTypes, RHSStates} from 'utils/constants';
 
 import type {DispatchFunc, GetStateFunc} from 'types/store';
 
-// postId of the thread we came from, so Back can restore it
-let previousThreadPostId: string | null = null;
-
 export function showThreadSummary(postId: string) {
-    return (dispatch: DispatchFunc, getState: GetStateFunc) => {
-        // Always back to the thread being summarized, not a different RHS thread
-        previousThreadPostId = postId;
-
+    return (dispatch: DispatchFunc) => {
         dispatch({
             type: ActionTypes.UPDATE_RHS_STATE,
             state: RHSStates.THREAD_SUMMARY,
@@ -31,27 +26,19 @@ export function showThreadSummary(postId: string) {
 
 export function backToThreadFromSummary() {
     return (dispatch: DispatchFunc, getState: GetStateFunc) => {
-        const postId = previousThreadPostId;
-        previousThreadPostId = null;
+        const postId = getThreadSummaryPreviousPostId(getState());
+
+        dispatch(clearThreadSummary());
 
         if (postId) {
             const post = getPost(getState(), postId);
             if (post) {
-                dispatch({
-                    type: ActionTypes.SELECT_POST,
-                    postId: post.root_id || post.id,
-                    channelId: post.channel_id,
-                    timestamp: Date.now(),
-                });
+                dispatch(selectPost(post));
                 return {data: true};
             }
         }
 
-        // Fallback: close RHS
-        dispatch({
-            type: ActionTypes.UPDATE_RHS_STATE,
-            state: null,
-        });
+        dispatch({type: ActionTypes.UPDATE_RHS_STATE, state: null});
         return {data: true};
     };
 }
@@ -61,6 +48,7 @@ export function fetchThreadSummary(postId: string) {
         dispatch({
             type: ActionTypes.THREAD_SUMMARY_REQUEST,
             postId,
+            previousPostId: postId,
         });
 
         try {
