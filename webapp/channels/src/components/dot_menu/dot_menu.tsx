@@ -701,7 +701,7 @@ export class DotMenuClass extends React.PureComponent<Props, State> {
                         onClick={this.handleSetThreadFollow}
                     />
                 }
-                {this.props.post.root_id === '' && (this.props.threadReplyCount ?? 0) > 0 &&
+                {this.props.post.root_id === '' && ((this.props.threadReplyCount ?? 0) > 0 || this.props.post.reply_count > 0) &&
                     <Menu.Item
                         id={`summarize_thread_${this.props.post.id}`}
                         data-testid={`summarize_thread_${this.props.post.id}`}

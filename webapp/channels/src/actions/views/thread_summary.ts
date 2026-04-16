@@ -5,6 +5,7 @@ import {Client4} from 'mattermost-redux/client';
 import {getPost} from 'mattermost-redux/selectors/entities/posts';
 
 import {selectPost} from 'actions/views/rhs';
+import {getRhsState, getPreviousRhsState} from 'selectors/rhs';
 import {getThreadSummaryPreviousPostId} from 'selectors/views/thread_summary';
 
 import {ActionTypes, RHSStates} from 'utils/constants';
@@ -12,10 +13,16 @@ import {ActionTypes, RHSStates} from 'utils/constants';
 import type {DispatchFunc, GetStateFunc} from 'types/store';
 
 export function showThreadSummary(postId: string) {
-    return (dispatch: DispatchFunc) => {
+    return (dispatch: DispatchFunc, getState: GetStateFunc) => {
+        // Preserve the full RHS back stack so "thread → summary → back → back"
+        // returns to search/saved/pinned results the thread was opened from
+        const currentRhsState = getRhsState(getState());
+        const existingPrevious = getPreviousRhsState(getState());
+
         dispatch({
             type: ActionTypes.UPDATE_RHS_STATE,
             state: RHSStates.THREAD_SUMMARY,
+            previousRhsState: currentRhsState ?? existingPrevious,
         });
 
         dispatch(fetchThreadSummary(postId));
@@ -55,6 +62,7 @@ export function fetchThreadSummary(postId: string) {
             const data = await Client4.postThreadSummary(postId);
             dispatch({
                 type: ActionTypes.THREAD_SUMMARY_SUCCESS,
+                postId,
                 data,
             });
             return {data};
@@ -62,6 +70,7 @@ export function fetchThreadSummary(postId: string) {
             const message = err instanceof Error ? err.message : 'Failed to generate summary';
             dispatch({
                 type: ActionTypes.THREAD_SUMMARY_FAILURE,
+                postId,
                 error: message,
             });
             return {error: message};

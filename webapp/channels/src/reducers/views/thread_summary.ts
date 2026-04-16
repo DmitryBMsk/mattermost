@@ -1,8 +1,6 @@
 // Copyright (c) 2015-present Mattermost, Inc. All Rights Reserved.
 // See LICENSE.txt for license information.
 
-import {combineReducers} from 'redux';
-
 import {ActionTypes} from 'utils/constants';
 
 export interface ThreadSummaryData {
@@ -16,63 +14,64 @@ export interface ThreadSummaryData {
     model: string;
 }
 
-function loading(state = false, action: {type: string}) {
+export interface ThreadSummaryState {
+    loading: boolean;
+    postId: string | null;
+    data: ThreadSummaryData | null;
+    error: string | null;
+    previousPostId: string | null;
+}
+
+const initialState: ThreadSummaryState = {
+    loading: false,
+    postId: null,
+    data: null,
+    error: null,
+    previousPostId: null,
+};
+
+type ThreadSummaryAction = {
+    type: string;
+    postId?: string;
+    previousPostId?: string;
+    data?: ThreadSummaryData;
+    error?: string;
+};
+
+// Single reducer to ensure success/failure for a stale request are ignored
+export default function threadSummary(state = initialState, action: ThreadSummaryAction): ThreadSummaryState {
     switch (action.type) {
     case ActionTypes.THREAD_SUMMARY_REQUEST:
-        return true;
+        return {
+            ...state,
+            loading: true,
+            postId: action.postId ?? null,
+            data: null,
+            error: null,
+            previousPostId: action.previousPostId ?? null,
+        };
     case ActionTypes.THREAD_SUMMARY_SUCCESS:
+        // Ignore stale completion — postId must match current request
+        if (action.postId && action.postId !== state.postId) {
+            return state;
+        }
+        return {
+            ...state,
+            loading: false,
+            data: action.data ?? null,
+        };
     case ActionTypes.THREAD_SUMMARY_FAILURE:
+        if (action.postId && action.postId !== state.postId) {
+            return state;
+        }
+        return {
+            ...state,
+            loading: false,
+            error: action.error ?? 'Unknown error',
+        };
     case ActionTypes.THREAD_SUMMARY_CLEAR:
-        return false;
+        return initialState;
     default:
         return state;
     }
 }
-
-function postId(state: string | null = null, action: {type: string; postId?: string}) {
-    switch (action.type) {
-    case ActionTypes.THREAD_SUMMARY_REQUEST:
-        return action.postId ?? null;
-    case ActionTypes.THREAD_SUMMARY_CLEAR:
-        return null;
-    default:
-        return state;
-    }
-}
-
-function data(state: ThreadSummaryData | null = null, action: {type: string; data?: ThreadSummaryData}) {
-    switch (action.type) {
-    case ActionTypes.THREAD_SUMMARY_SUCCESS:
-        return action.data ?? null;
-    case ActionTypes.THREAD_SUMMARY_CLEAR:
-    case ActionTypes.THREAD_SUMMARY_REQUEST:
-        return null;
-    default:
-        return state;
-    }
-}
-
-function error(state: string | null = null, action: {type: string; error?: string}) {
-    switch (action.type) {
-    case ActionTypes.THREAD_SUMMARY_FAILURE:
-        return action.error ?? 'Unknown error';
-    case ActionTypes.THREAD_SUMMARY_REQUEST:
-    case ActionTypes.THREAD_SUMMARY_CLEAR:
-        return null;
-    default:
-        return state;
-    }
-}
-
-function previousPostId(state: string | null = null, action: {type: string; previousPostId?: string}) {
-    switch (action.type) {
-    case ActionTypes.THREAD_SUMMARY_REQUEST:
-        return action.previousPostId ?? null;
-    case ActionTypes.THREAD_SUMMARY_CLEAR:
-        return null;
-    default:
-        return state;
-    }
-}
-
-export default combineReducers({loading, postId, data, error, previousPostId});
