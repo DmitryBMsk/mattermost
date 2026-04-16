@@ -22,7 +22,26 @@ import {
     getThreadSummaryPostId,
 } from 'selectors/views/thread_summary';
 
+import AtMention from 'components/at_mention';
+
 import './thread_summary_panel.scss';
+
+function renderTextWithMentions(text: string): React.ReactNode {
+    const parts = text.split(/(@\w[\w.-]*)/g);
+    return parts.map((part, i) => {
+        if (part.startsWith('@')) {
+            const username = part.slice(1);
+            return (
+                <AtMention
+                    key={i}
+                    mentionName={username}
+                    fetchMissingUsers={true}
+                />
+            );
+        }
+        return part;
+    });
+}
 
 const ThreadSummaryPanel: React.FC = () => {
     const dispatch = useDispatch();
@@ -120,7 +139,7 @@ const ThreadSummaryPanel: React.FC = () => {
                         </div>
 
                         <div className='ThreadSummaryPanel__summary'>
-                            {data.summary}
+                            {renderTextWithMentions(data.summary)}
                         </div>
 
                         {data.key_points.length > 0 && (
@@ -152,7 +171,7 @@ const ThreadSummaryPanel: React.FC = () => {
                                 {detailsExpanded && (
                                     <ul className='ThreadSummaryPanel__key-points'>
                                         {data.key_points.map((point: {text: string; post_ids: string[]}, idx: number) => (
-                                            <li key={idx}>{point.text}</li>
+                                            <li key={idx}>{renderTextWithMentions(point.text)}</li>
                                         ))}
                                     </ul>
                                 )}
