@@ -47,30 +47,32 @@ func (a *App) SummarizePosts(rctx request.CTX, userID string, posts []*model.Pos
 	// Build conversation context from posts and collect post IDs
 	conversationText, postIDs := buildConversationTextWithIDs(posts)
 
-	systemPrompt := "You are an expert at analyzing team conversations and extracting key information. Your task is to summarize a conversation from a Mattermost channel, identifying the most important highlights and any actionable items. Return ONLY valid JSON with 'highlights' and 'action_items' keys, each containing an array of strings. If there are no highlights or action items, return empty arrays. Do not make up information - only include items explicitly mentioned in the conversation."
+	systemPrompt := "Ты — эксперт по анализу командных переписок и извлечению ключевой информации. Твоя задача — кратко изложить переписку из канала Mattermost, выделив самое важное и задачи к выполнению. Верни ТОЛЬКО валидный JSON с ключами 'highlights' и 'action_items', каждый — массив строк. Если ничего из этого нет — верни пустые массивы. Не придумывай информацию: включай только то, что явно есть в переписке. Весь текст в highlights и action_items — на РУССКОМ ЯЗЫКЕ. Не переводи и не изменяй @username — оставляй как есть."
 
-	userPrompt := fmt.Sprintf(`Analyze the following conversation from the "%s" channel and provide a summary.
+	userPrompt := fmt.Sprintf(`Проанализируй переписку из канала «%s» и сформируй саммари на русском языке.
 
 Site URL: %s
 Team Name: %s
 
-Conversation:
+Переписка:
 %s
 
-Available Post IDs: %s
+Доступные Post IDs: %s
 
-Return a JSON object with:
-- "highlights": array of key discussion points, decisions, or important information
-- "action_items": array of tasks, todos, or action items mentioned
+Верни JSON-объект с:
+- "highlights": массив ключевых тем, решений или важной информации из обсуждения
+- "action_items": массив задач, todo и действий, упомянутых в обсуждении
 
-IMPORTANT INSTRUCTIONS:
-1. When your summary includes a user's username, prepend an @ symbol to the username. For example if you return a highlight with text '<username> sent an update about project xyz', where <username> is 'john.smith', you should phrase is as '@john.smith sent an update about project xyz'.
+Все строки — на русском языке.
 
-2. For EACH highlight and action item, you MUST append a permalink to cite the source. The permalink should reference the most relevant post from the conversation. Format the permalink at the END of each item as: [PERMALINK:%s/%s/pl/<POST_ID>] where <POST_ID> is one of the available post IDs provided above. Choose the post ID that is most relevant to that specific highlight or action item.
+ВАЖНЫЕ ПРАВИЛА:
+1. Если в твоём пункте упоминается пользователь, ставь перед username символ @ (оставляй username как есть, без перевода). Пример: если в чате '<username>' = 'john.smith' и он что-то сообщил — пиши «@john.smith отправил апдейт по проекту xyz».
 
-Example format: "Team decided to migrate to microservices architecture [PERMALINK:%s/%s/pl/abc123xyz]"
+2. К КАЖДОМУ highlight и action item добавляй permalink на исходный пост. Ссылка — в конец строки, в формате: [PERMALINK:%s/%s/pl/<POST_ID>], где <POST_ID> — один из доступных Post IDs выше. Выбирай тот post, который максимально релевантен этому пункту.
 
-Your response must be compacted valid JSON only, with no additional text, formatting, nor code blocks.`, channelName, siteURL, teamName, conversationText, strings.Join(postIDs, ", "), siteURL, teamName, siteURL, teamName)
+Пример: «Команда решила перейти на микросервисную архитектуру [PERMALINK:%s/%s/pl/abc123xyz]»
+
+Ответ — строго компактный валидный JSON, без дополнительного текста, без форматирования и без блоков кода.`, channelName, siteURL, teamName, conversationText, strings.Join(postIDs, ", "), siteURL, teamName, siteURL, teamName)
 
 	// Create bridge client
 	sessionUserID := ""
