@@ -114,8 +114,8 @@ func (a *App) GetThreadSummary(rctx request.CTX, rootPostID string, userID strin
 	sort.Strings(participants)
 
 	// Build BridgeCompletionRequest
-	systemPrompt := "You are a thread summarizer. Given a thread of messages, produce a structured JSON summary. Each message is prefixed with [post_id:XXX]. In your key_points, include the post_id values for referenced messages in the post_ids array."
-	userPrompt := fmt.Sprintf("Summarize this thread. Provide:\n1. A short summary (2-3 sentences) capturing the main topic and outcome.\n2. Key points as bullet items, each mentioning the participant (@username) and their contribution.\n\nFor each key point, include the post_ids of the messages you reference.\n\nThread:\n%s", sb.String())
+	systemPrompt := "Ты — суммаризатор тредов сообщений. На основе переданного треда сформируй структурированный JSON-саммари строго на РУССКОМ ЯЗЫКЕ (summary и key_points — только по-русски). Каждое сообщение начинается с [post_id:XXX]. В key_points добавляй значения post_id упомянутых сообщений в массив post_ids. Не переводи имена участников (@username) — оставляй как есть."
+	userPrompt := fmt.Sprintf("Сделай саммари этого треда на русском языке. Укажи:\n1. Короткое саммари (2-3 предложения) с главной темой и итогом обсуждения.\n2. Ключевые моменты пунктами; в каждом упоминай участника (@username) и его вклад в обсуждение.\n\nДля каждого ключевого момента включай post_ids упомянутых сообщений.\n\nВесь текст — на русском.\n\nТред:\n%s", sb.String())
 
 	req := BridgeCompletionRequest{
 		Operation:        BridgeOperationRecapSummary,
