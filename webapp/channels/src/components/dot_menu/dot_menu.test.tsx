@@ -194,6 +194,7 @@ describe('components/dot_menu/DotMenu', () => {
             setGlobalItem: jest.fn(),
             burnPostNow: jest.fn(),
             savePreferences: jest.fn(),
+            showThreadSummary: jest.fn(),
         },
         canEdit: false,
         canDelete: false,

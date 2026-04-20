@@ -2403,6 +2403,19 @@ export default class Client4 {
         );
     };
 
+    postThreadSummary = (postId: string) => {
+        return this.doFetch<{
+            summary: string;
+            key_points: Array<{text: string; post_ids: string[]}>;
+            participants: string[];
+            thread_post_count: number;
+            model: string;
+        }>(
+            `${this.getPostRoute(postId)}/summary`,
+            {method: 'post'},
+        );
+    };
+
     getPosts = (channelId: string, page = 0, perPage = PER_PAGE_DEFAULT, fetchThreads = true, collapsedThreads = false, collapsedThreadsExtended = false) => {
         return this.doFetch<PostList>(
             `${this.getChannelRoute(channelId)}/posts${buildQueryString({page, per_page: perPage, skipFetchThreads: !fetchThreads, collapsedThreads, collapsedThreadsExtended})}`,

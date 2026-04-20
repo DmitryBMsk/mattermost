@@ -35,6 +35,7 @@ import {
     markPostAsUnread,
 } from 'actions/post_actions';
 import {openModal, closeModal} from 'actions/views/modals';
+import {showThreadSummary} from 'actions/views/thread_summary';
 import {isBurnOnReadPost, isThisPostBurnOnReadPost, shouldDisplayConcealedPlaceholder} from 'selectors/burn_on_read_posts';
 import {makeCanWrangler} from 'selectors/posts';
 import {getIsMobileView} from 'selectors/views/browser';
@@ -160,6 +161,7 @@ function mapDispatchToProps(dispatch: Dispatch) {
             setThreadFollow,
             burnPostNow,
             savePreferences,
+            showThreadSummary,
         }, dispatch),
     };
 }

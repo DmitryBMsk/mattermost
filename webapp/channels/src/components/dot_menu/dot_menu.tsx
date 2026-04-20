@@ -7,6 +7,7 @@ import {FormattedMessage, injectIntl} from 'react-intl';
 import type {IntlShape} from 'react-intl';
 
 import {
+    AiSummarizeIcon,
     AlertOutlineIcon,
     ArrowRightBoldOutlineIcon,
     BookmarkIcon,
@@ -162,6 +163,8 @@ type Props = {
          * Function to save user preferences
          */
         savePreferences: (userId: string, preferences: Array<{category: string; user_id: string; name: string; value: string}>) => void;
+
+        showThreadSummary: (postId: string) => void;
 
     }; // TechDebt: Made non-mandatory while converting to typescript
 
@@ -367,6 +370,10 @@ export class DotMenuClass extends React.PureComponent<Props, State> {
             this.props.location === Locations.CENTER ? 'post_textbox' : 'reply_textbox',
             this.props.location === Locations.RHS_ROOT || this.props.location === Locations.RHS_COMMENT || this.props.location === Locations.SEARCH,
         );
+    };
+
+    handleSummarizeThread = () => {
+        this.props.actions.showThreadSummary(this.props.post.id);
     };
 
     handleSetThreadFollow = () => {
@@ -692,6 +699,20 @@ export class DotMenuClass extends React.PureComponent<Props, State> {
                             )
                         }
                         onClick={this.handleSetThreadFollow}
+                    />
+                }
+                {this.props.post.root_id === '' && ((this.props.threadReplyCount ?? 0) > 0 || this.props.post.reply_count > 0) &&
+                    <Menu.Item
+                        id={`summarize_thread_${this.props.post.id}`}
+                        data-testid={`summarize_thread_${this.props.post.id}`}
+                        labels={
+                            <FormattedMessage
+                                id='post_info.summarize_thread'
+                                defaultMessage='Summarize Thread'
+                            />
+                        }
+                        leadingElement={<AiSummarizeIcon size={18}/>}
+                        onClick={this.handleSummarizeThread}
                     />
                 }
                 {showMarkAsUnread &&
